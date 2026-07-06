@@ -10,10 +10,10 @@ function getExampleTables(): Table[] {
       x: 300,
       y: 200,
       attributes: [
-        { id: 'attr_p1', name: 'PatientID', type: 'INT', pk: true, fk: false, nullable: false, unique: true },
-        { id: 'attr_p2', name: 'FirstName', type: 'VARCHAR', pk: false, fk: false, nullable: false, unique: false },
-        { id: 'attr_p3', name: 'LastName', type: 'VARCHAR', pk: false, fk: false, nullable: false, unique: false },
-        { id: 'attr_p4', name: 'BirthDate', type: 'DATE', pk: false, fk: false, nullable: true, unique: false },
+        { id: 'attr_p1', name: 'PatientID', type: '', pk: true, fk: false, nullable: false, unique: true },
+        { id: 'attr_p2', name: 'FirstName', type: '', pk: false, fk: false, nullable: false, unique: false },
+        { id: 'attr_p3', name: 'LastName', type: '', pk: false, fk: false, nullable: false, unique: false },
+        { id: 'attr_p4', name: 'BirthDate', type: '', pk: false, fk: false, nullable: true, unique: false },
       ]
     },
     {
@@ -22,9 +22,8 @@ function getExampleTables(): Table[] {
       x: 700,
       y: 200,
       attributes: [
-        { id: 'attr_v1', name: 'VisitID', type: 'INT', pk: true, fk: false, nullable: false, unique: true },
-        { id: 'attr_v2', name: 'PatientID', type: 'INT', pk: false, fk: true, nullable: false, unique: false },
-        { id: 'attr_v3', name: 'VisitDate', type: 'DATETIME', pk: false, fk: false, nullable: false, unique: false },
+        { id: 'attr_v1', name: 'VisitID', type: '', pk: true, fk: false, nullable: false, unique: true },
+        { id: 'attr_v3', name: 'VisitDate', type: '', pk: false, fk: false, nullable: false, unique: false },
       ]
     }
   ];
@@ -283,7 +282,7 @@ export default function App() {
     const id = 'tbl_' + Date.now() + Math.random().toString(36).substr(2, 5);
     const newTable: Table = {
       id,
-      name: `NewTable_${tables.length + 1}`,
+      name: `Entity_${tables.length + 1}`,
       x: 100 - panX,
       y: 100 - panY,
       attributes: [],
@@ -298,7 +297,8 @@ export default function App() {
 
   const handleUpdateTableName = (tableId: string, name: string) => {
     if (!name.trim()) return;
-    setTables(prev => prev.map(t => t.id === tableId ? { ...t, name } : t));
+    const formatted = name.charAt(0).toUpperCase() + name.slice(1);
+    setTables(prev => prev.map(t => t.id === tableId ? { ...t, name: formatted } : t));
   };
 
   const handleAddNewAttribute = (tableId: string) => {
@@ -307,7 +307,7 @@ export default function App() {
         const newAttr: Attribute = {
           id: 'attr_' + Date.now() + Math.random().toString(36).substr(2, 5),
           name: 'NewAttr',
-          type: 'VARCHAR',
+          type: '',
           pk: false,
           fk: false,
           nullable: false,
@@ -399,14 +399,29 @@ export default function App() {
       const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
       const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
 
-      return `<polyline id="line_${rel.id}" points="${x1},${y1} ${mx},${my} ${x2},${y2}" class="rel-line"></polyline>`;
+      // Parse cardinality
+      const cardParts = rel.cardinality.split(':');
+      const c1 = cardParts[0] || '1';
+      const c2 = cardParts[1] || 'N';
+
+      // Positions for cardinality labels
+      const label1X = x1 + (mx - x1) * 0.35;
+      const label1Y = y1 + (my - y1) * 0.35;
+      const label2X = x2 + (mx - x2) * 0.35;
+      const label2Y = y2 + (my - y2) * 0.35;
+
+      return `
+        <polyline id="line_${rel.id}" points="${x1},${y1} ${mx},${my} ${x2},${y2}" class="rel-line"></polyline>
+        <text x="${label1X}" y="${label1Y}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c1}</text>
+        <text x="${label2X}" y="${label2Y}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c2}</text>
+      `;
     }).join('\n');
 
     const tablesHtml = tables.map((table, index) => {
-      const attrsHtml = table.attributes.map(attr => {
+      // Filter out any foreign key attributes and remove datatype rendering
+      const attrsHtml = table.attributes.filter(attr => !attr.fk).map(attr => {
         let icons = '';
         if (attr.pk) icons += `<span class="icon pk" title="Primary Key">🔑</span>`;
-        if (attr.fk) icons += `<span class="icon fk" title="Foreign Key">🔗</span>`;
         if (attr.unique) icons += `<span class="icon unique" title="Unique">⭐</span>`;
         if (attr.nullable) icons += `<span class="icon nullable" title="Nullable">○</span>`;
 
@@ -414,7 +429,6 @@ export default function App() {
           <div class="attr-line">
             <div class="attr-icons">${icons}</div>
             <div class="attr-name">${attr.name}</div>
-            <div class="attr-type">${attr.type}</div>
           </div>
         `;
       }).join('\n');
@@ -422,7 +436,7 @@ export default function App() {
       return `
         <div class="table-node" id="node_${table.id}" style="left: ${table.x}px; top: ${table.y}px; z-index: ${index + 10}; cursor: default;">
           <div class="table-node-header" style="cursor: default;">
-            <span>${table.name.toLowerCase()}</span>
+            <span>${table.name}</span>
             <div style="display: flex; gap: 6px; opacity: 0.6;">
               <div style="width: 6px; height: 6px; border-radius: 50%; background-color: #6b7280;"></div>
               <div style="width: 6px; height: 6px; border-radius: 50%; background-color: #6b7280;"></div>
@@ -499,7 +513,7 @@ export default function App() {
         #tables-layer { z-index: 2; pointer-events: none; }
         .table-node { position: absolute; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 220px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6); overflow: hidden; pointer-events: auto; }
         .table-node:hover { border-color: var(--accent-blue); box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2); z-index: 100 !important; }
-        .table-node-header { background: #1a1a1a; color: var(--accent-blue); border-bottom: 1px solid var(--border-color); padding: 10px; font-weight: bold; font-family: monospace; text-transform: lowercase; text-align: center; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 14px; padding-right: 14px; }
+        .table-node-header { background: #1a1a1a; color: var(--accent-blue); border-bottom: 1px solid var(--border-color); padding: 10px; font-weight: bold; font-family: monospace; text-align: center; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 14px; padding-right: 14px; }
         .table-node-body { padding: 10px; }
         .attr-line { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; }
         .attr-line:last-child { border-bottom: none; }
@@ -660,7 +674,7 @@ export default function App() {
                 </div>
                 
                 <div className="sidebar-item-body">
-                  {table.attributes.map(attr => (
+                  {table.attributes.filter(attr => !attr.fk).map(attr => (
                     <div className="attr-row" key={attr.id}>
                       <input
                         type="text"
@@ -670,21 +684,10 @@ export default function App() {
                         onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'name', e.target.value)}
                         placeholder="Name"
                       />
-                      <input
-                        type="text"
-                        className="input-field"
-                        style={{ margin: 0 }}
-                        value={attr.type}
-                        onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'type', e.target.value)}
-                        placeholder="Type"
-                      />
                       <button className="btn btn-sm btn-danger" onClick={() => handleDeleteAttribute(table.id, attr.id)}>X</button>
-                      <div style={{ gridColumn: 'span 3', display: 'flex', gap: '5px', fontSize: '12px', marginBottom: '10px' }}>
+                      <div style={{ gridColumn: 'span 2', display: 'flex', gap: '5px', fontSize: '12px', marginBottom: '10px' }}>
                         <label className="flex items-center gap-1 cursor-pointer">
                           <input type="checkbox" checked={attr.pk} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'pk', e.target.checked)} /> PK
-                        </label>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                          <input type="checkbox" checked={attr.fk} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'fk', e.target.checked)} /> FK
                         </label>
                         <label className="flex items-center gap-1 cursor-pointer">
                           <input type="checkbox" checked={attr.unique} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'unique', e.target.checked)} /> UQ
@@ -804,13 +807,65 @@ export default function App() {
               const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
               const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
 
+              // Parse cardinality
+              const cardParts = rel.cardinality.split(':');
+              const c1 = cardParts[0] || '1';
+              const c2 = cardParts[1] || 'N';
+
+              // Positions for cardinality labels
+              const label1X = x1 + (mx - x1) * 0.35;
+              const label1Y = y1 + (my - y1) * 0.35;
+              const label2X = x2 + (mx - x2) * 0.35;
+              const label2Y = y2 + (my - y2) * 0.35;
+
               return (
-                <polyline
-                  key={rel.id}
-                  id={`line_${rel.id}`}
-                  points={`${x1},${y1} ${mx},${my} ${x2},${y2}`}
-                  className="rel-line"
-                />
+                <g key={rel.id}>
+                  <polyline
+                    id={`line_${rel.id}`}
+                    points={`${x1},${y1} ${mx},${my} ${x2},${y2}`}
+                    className="rel-line"
+                  />
+                  {/* Cardinality 1 Label */}
+                  <text
+                    x={label1X}
+                    y={label1Y}
+                    fill="#6366f1"
+                    fontSize="13"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    style={{
+                      paintOrder: 'stroke',
+                      stroke: '#0a0a0a',
+                      strokeWidth: '4px',
+                      strokeLinecap: 'butt',
+                      strokeLinejoin: 'miter',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {c1}
+                  </text>
+                  {/* Cardinality 2 Label */}
+                  <text
+                    x={label2X}
+                    y={label2Y}
+                    fill="#6366f1"
+                    fontSize="13"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    style={{
+                      paintOrder: 'stroke',
+                      stroke: '#0a0a0a',
+                      strokeWidth: '4px',
+                      strokeLinecap: 'butt',
+                      strokeLinejoin: 'miter',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {c2}
+                  </text>
+                </g>
               );
             })}
           </svg>
@@ -833,17 +888,16 @@ export default function App() {
                   id={`header_${table.id}`}
                   onMouseDown={(e) => handleTableMouseDown(e, table.id)}
                 >
-                  <span>{table.name.toLowerCase()}</span>
+                  <span>{table.name}</span>
                   <div className="flex gap-1.5 opacity-60">
                     <div className="w-1.5 h-1.5 rounded-full bg-gray-500"></div>
                     <div className="w-1.5 h-1.5 rounded-full bg-gray-500"></div>
                   </div>
                 </div>
                 <div className="table-node-body">
-                  {table.attributes.map(attr => {
+                  {table.attributes.filter(attr => !attr.fk).map(attr => {
                     let icons = [];
                     if (attr.pk) icons.push(<span className="icon pk" title="Primary Key" key="pk">🔑</span>);
-                    if (attr.fk) icons.push(<span className="icon fk" title="Foreign Key" key="fk">🔗</span>);
                     if (attr.unique) icons.push(<span className="icon unique" title="Unique" key="uq">⭐</span>);
                     if (attr.nullable) icons.push(<span className="icon nullable" title="Nullable" key="null">○</span>);
 
@@ -851,7 +905,6 @@ export default function App() {
                       <div className="attr-line" key={attr.id}>
                         <div className="attr-icons">{icons}</div>
                         <div className="attr-name">{attr.name}</div>
-                        <div className="attr-type">{attr.type}</div>
                       </div>
                     );
                   })}
@@ -930,14 +983,13 @@ export default function App() {
           <div className="text-xs text-gray-400 leading-relaxed flex flex-col gap-1.5">
             <p>• <strong>Drag</strong> table headers to position them.</p>
             <p>• <strong>Drag</strong> relationship diamonds to reroute lines.</p>
-            <p>• <strong>Hover</strong> tables to auto-expand their attributes.</p>
+            <p>• <strong>Hover</strong> tables to highlight their connections.</p>
           </div>
 
           <div className="border-t border-[#262626] pt-2">
             <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Legend</h4>
             <ul className="text-xs text-gray-300 flex flex-col gap-1.5">
               <li className="flex items-center gap-2"><span className="text-[#ecc94b]">🔑</span> Primary Key</li>
-              <li className="flex items-center gap-2"><span className="text-[#4fd1c5]">🔗</span> Foreign Key</li>
               <li className="flex items-center gap-2"><span className="text-[#b794f4]">⭐</span> Unique</li>
               <li className="flex items-center gap-2"><span className="text-[#718096]">○</span> Nullable</li>
               <li className="flex items-center gap-2"><span className="text-[#6366f1]">◇</span> Relationship</li>

@@ -137,7 +137,7 @@ body {
 .list-container { display: flex; flex-direction: column; gap: 10px; }
 .sidebar-item { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; }
 .sidebar-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;}
-.attr-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 5px; margin-bottom: 5px;}
+.attr-row { display: grid; grid-template-columns: 1fr auto; gap: 5px; margin-bottom: 5px;}
 
 /* --- Canvas Area --- */
 .canvas-viewport {
@@ -204,7 +204,7 @@ body {
     padding: 10px;
     font-weight: bold;
     font-family: monospace;
-    text-transform: lowercase;
+    text-transform: none;
     text-align: center;
     cursor: grab;
     user-select: none;
