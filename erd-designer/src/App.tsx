@@ -420,7 +420,7 @@ export default function App() {
       }).join('\n');
 
       return `
-        <div class="table-node" id="node_${table.id}" style="left: ${table.x}px; top: ${table.y}px; z-index: ${index + 10}; max-height: 40px; cursor: default;">
+        <div class="table-node" id="node_${table.id}" style="left: ${table.x}px; top: ${table.y}px; z-index: ${index + 10}; cursor: default;">
           <div class="table-node-header" style="cursor: default;">
             <span>${table.name.toLowerCase()}</span>
             <div style="display: flex; gap: 6px; opacity: 0.6;">
@@ -497,8 +497,8 @@ export default function App() {
         #svg-layer, #tables-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
         #svg-layer { pointer-events: none; z-index: 1; }
         #tables-layer { z-index: 2; pointer-events: none; }
-        .table-node { position: absolute; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 220px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6); overflow: hidden; max-height: 40px; transition: max-height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); pointer-events: auto; }
-        .table-node:hover { max-height: 800px; border-color: var(--accent-blue); box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2); z-index: 100 !important; }
+        .table-node { position: absolute; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 220px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6); overflow: hidden; pointer-events: auto; }
+        .table-node:hover { border-color: var(--accent-blue); box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2); z-index: 100 !important; }
         .table-node-header { background: #1a1a1a; color: var(--accent-blue); border-bottom: 1px solid var(--border-color); padding: 10px; font-weight: bold; font-family: monospace; text-transform: lowercase; text-align: center; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 14px; padding-right: 14px; }
         .table-node-body { padding: 10px; }
         .attr-line { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; }
@@ -906,41 +906,64 @@ export default function App() {
         </div>
       </main>
 
-      {/* Toggle for Right Panel */}
-      <button
-        id="toggle-right"
-        className="panel-toggle toggle-right"
-        title="Toggle Right Panel"
-        onClick={() => setRightCollapsed(!rightCollapsed)}
-        style={{ right: rightCollapsed ? '10px' : '268px', transform: rightCollapsed ? 'rotate(180deg)' : 'none' }}
-      >
-        ▶
-      </button>
-
-      {/* RIGHT PANEL: Help & Legend */}
-      <aside className={`panel right-panel ${rightCollapsed ? 'collapsed' : ''}`} id="right-panel">
-        <div className="panel-section">
-          <h3>Legend</h3>
-          <ul className="legend-list">
-            <li><span className="icon pk">🔑</span> Primary Key</li>
-            <li><span className="icon fk">🔗</span> Foreign Key</li>
-            <li><span className="icon unique">⭐</span> Unique</li>
-            <li><span className="icon nullable">○</span> Nullable</li>
-            <li><span className="icon rel">◇</span> Relationship</li>
-          </ul>
-        </div>
-        
-        {/* CHANGED: Guidance panel replaced by elegant floating bubble that can be permanently closed */}
-        {!rightCollapsed && !guideHidden && (
-          <div className="panel-section" style={{ paddingTop: 0 }}>
-            <div className="helper-bubble">
-              <span className="icon">💡</span>
-              <span className="label">Guide</span>
-              <button className="close-btn" onClick={handleCloseGuidePermanently} title="Dismiss permanently">×</button>
+      {/* Floating Guide/Help bubble and legend (Dismissible & Toggleable) */}
+      {!guideHidden && (
+        <div 
+          className="absolute right-6 bottom-16 w-64 bg-[#121212]/95 border border-[#262626] rounded-xl p-4 shadow-2xl backdrop-blur-md z-40 animate-fadeIn flex flex-col gap-3"
+          id="floating-guide-panel"
+        >
+          <div className="flex items-center justify-between border-b border-[#262626] pb-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-blue-400">
+              <span>💡</span>
+              <span>Interactive Guide</span>
             </div>
+            <button 
+              onClick={handleCloseGuidePermanently} 
+              className="text-gray-500 hover:text-red-400 text-lg transition-colors cursor-pointer leading-none"
+              title="Dismiss guide permanently"
+              id="close-guide-btn"
+            >
+              &times;
+            </button>
           </div>
-        )}
-      </aside>
+          
+          <div className="text-xs text-gray-400 leading-relaxed flex flex-col gap-1.5">
+            <p>• <strong>Drag</strong> table headers to position them.</p>
+            <p>• <strong>Drag</strong> relationship diamonds to reroute lines.</p>
+            <p>• <strong>Hover</strong> tables to auto-expand their attributes.</p>
+          </div>
+
+          <div className="border-t border-[#262626] pt-2">
+            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Legend</h4>
+            <ul className="text-xs text-gray-300 flex flex-col gap-1.5">
+              <li className="flex items-center gap-2"><span className="text-[#ecc94b]">🔑</span> Primary Key</li>
+              <li className="flex items-center gap-2"><span className="text-[#4fd1c5]">🔗</span> Foreign Key</li>
+              <li className="flex items-center gap-2"><span className="text-[#b794f4]">⭐</span> Unique</li>
+              <li className="flex items-center gap-2"><span className="text-[#718096]">○</span> Nullable</li>
+              <li className="flex items-center gap-2"><span className="text-[#6366f1]">◇</span> Relationship</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toggle Button */}
+      <button
+        onClick={() => {
+          const nextHidden = !guideHidden;
+          setGuideHidden(nextHidden);
+          if (nextHidden) {
+            localStorage.setItem('erd_guide_hidden', 'true');
+          } else {
+            localStorage.removeItem('erd_guide_hidden');
+          }
+        }}
+        className="absolute right-6 bottom-4 bg-[#161616] hover:bg-[#222222] text-xs font-medium text-gray-400 hover:text-gray-100 px-3 py-1.5 rounded-lg border border-[#262626] shadow-lg flex items-center gap-1.5 transition-colors cursor-pointer z-40"
+        title="Toggle interactive guide and legend"
+        id="toggle-guide-btn"
+      >
+        <span>💡</span>
+        <span>{guideHidden ? "Show Guide" : "Hide Guide"}</span>
+      </button>
       </div>
 
       {/* Footer Status Bar */}
