@@ -1,0 +1,6 @@
+{
+  "name": "ERD Designer",
+  "description": "A modern interactive Entity-Relationship Diagram designer and database modeler with local persistence and export capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

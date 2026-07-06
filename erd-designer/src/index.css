@@ -1,0 +1,356 @@
+@import "tailwindcss";
+
+:root {
+    --bg-dark: #0a0a0a;
+    --panel-dark: #121212;
+    --border-color: #262626;
+    --accent-blue: #3b82f6;
+    --accent-blue-hover: #2563eb;
+    --accent-purple: #6366f1;
+    --text-main: #d1d5db;
+    --text-muted: #6b7280;
+    --card-bg: #161616;
+    --font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    
+    --color-pk: #ecc94b;
+    --color-fk: #4fd1c5;
+    --color-unique: #b794f4;
+    --color-nullable: #718096;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    font-family: var(--font-family);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* --- Scrollbars --- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* --- Layout & Panels --- */
+.app-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    position: relative;
+}
+
+.panel {
+    width: 320px;
+    min-width: 320px;
+    background: var(--panel-dark);
+    backdrop-filter: blur(12px);
+    z-index: 20;
+    box-shadow: 4px 0 15px rgba(0,0,0,0.5);
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.panel.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    padding-left: 0;
+    padding-right: 0;
+    border: none;
+}
+
+.left-panel { border-right: 1px solid var(--border-color); }
+.right-panel {
+    width: 280px;
+    min-width: 280px;
+    border-left: 1px solid var(--border-color);
+    box-shadow: -4px 0 15px rgba(0,0,0,0.5);
+}
+
+.panel-header { padding: 20px; border-bottom: 1px solid var(--border-color); }
+.panel-section { padding: 20px; width: 320px; } /* Fixed width inside to prevent reflow during collapse */
+.right-panel .panel-section { width: 280px; }
+.section-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;}
+.divider { border: 0; border-top: 1px solid var(--border-color); margin: 0; }
+
+.header-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 15px; padding-bottom: 0;}
+
+/* --- Panel Toggles --- */
+.panel-toggle {
+    position: absolute;
+    top: 20px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    width: 24px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 30;
+    border-radius: 4px;
+    transition: transform 0.3s, background 0.2s;
+}
+.panel-toggle:hover { background: var(--accent-blue); border-color: var(--accent-blue); }
+.toggle-left { left: 308px; border-radius: 0 4px 4px 0; }
+.toggle-right { right: 268px; border-radius: 4px 0 0 4px; }
+.left-panel.collapsed ~ .toggle-left { transform: translateX(-308px) rotate(180deg); }
+.right-panel.collapsed ~ .toggle-right { transform: translateX(268px) rotate(180deg); }
+
+/* --- Forms & Buttons --- */
+.btn {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+.btn-primary { background: var(--accent-blue); border-color: var(--accent-blue); }
+.btn-primary:hover { background: var(--accent-blue-hover); transform: translateY(-1px); }
+.btn-secondary { background: var(--accent-purple); border-color: var(--accent-purple); }
+.btn-secondary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-sm { padding: 4px 8px; font-size: 0.8rem; }
+.btn-danger { background: #e53e3e; border-color: #e53e3e; }
+.btn-danger:hover { background: #c53030; }
+
+.input-field {
+    width: 100%;
+    background: #00000040;
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 8px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+}
+.form-group.row { display: flex; gap: 8px; }
+.input-field.narrow { width: 60px; }
+
+/* --- Sidebar Lists --- */
+.list-container { display: flex; flex-direction: column; gap: 10px; }
+.sidebar-item { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; }
+.sidebar-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;}
+.attr-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 5px; margin-bottom: 5px;}
+
+/* --- Canvas Area --- */
+.canvas-viewport {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+    background-color: var(--bg-dark);
+    background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
+    background-size: 20px 20px;
+    z-index: 10;
+}
+.canvas-viewport:active { cursor: grabbing; }
+
+.canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 5000px; 
+    height: 5000px;
+    transform-origin: 0 0;
+}
+
+#svg-layer, #tables-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+}
+#svg-layer { pointer-events: none; z-index: 1; }
+#tables-layer { z-index: 2; pointer-events: none; } /* tables and diamonds handle their own pointer events */
+
+/* --- ERD Table Cards (Canvas) --- */
+.table-node {
+    position: absolute;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    width: 220px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    overflow: hidden;
+    max-height: 40px; 
+    transition: max-height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), border-color 0.3s, box-shadow 0.3s, opacity 0.2s;
+    pointer-events: auto;
+}
+
+.table-node:hover {
+    max-height: 800px;
+    border-color: var(--accent-blue);
+    box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2), 0 10px 10px -5px rgba(59, 130, 246, 0.1);
+    z-index: 100 !important;
+}
+
+.table-node.dragging {
+    opacity: 0.8;
+    border-color: var(--accent-blue);
+    box-shadow: 0 25px 50px -12px rgba(59, 130, 246, 0.4) !important;
+    max-height: 40px !important; /* Collapse while dragging */
+}
+
+.table-node-header {
+    background: #1a1a1a;
+    color: var(--accent-blue);
+    border-b: 1px solid var(--border-color);
+    padding: 10px;
+    font-weight: bold;
+    font-family: monospace;
+    text-transform: lowercase;
+    text-align: center;
+    cursor: grab;
+    user-select: none;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-left: 14px;
+    padding-right: 14px;
+}
+.table-node-header:active { cursor: grabbing; }
+
+.table-node-body { padding: 10px; }
+.attr-line {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.85rem;
+}
+.attr-line:last-child { border-bottom: none; }
+.attr-icons { display: flex; gap: 4px; width: 45px; }
+.attr-name { flex: 1; font-family: monospace; font-size: 0.9rem;}
+.attr-type { color: var(--text-muted); font-size: 0.75rem; }
+
+/* --- Interactive HTML Relationship Diamonds --- */
+.rel-node {
+    position: absolute;
+    width: 60px; height: 40px;
+    margin-left: -30px; margin-top: -20px; /* Center perfectly on coordinates */
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto;
+    cursor: grab;
+    z-index: 50;
+}
+.rel-node.dragging { cursor: grabbing; opacity: 0.8; z-index: 110 !important; }
+
+.rel-diamond-shape {
+    position: absolute;
+    width: 40px; height: 40px;
+    background: var(--card-bg);
+    border: 2px solid var(--accent-purple);
+    transform: rotate(45deg);
+    transition: background 0.3s;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+.rel-node:hover .rel-diamond-shape { background: var(--accent-purple); }
+
+.rel-text-label {
+    position: relative;
+    color: var(--text-main);
+    font-size: 11px;
+    font-weight: bold;
+    user-select: none;
+    z-index: 2;
+    pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+/* --- Floating Hover Cards for Relationships --- */
+.rel-tooltip {
+    position: absolute;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel-dark);
+    border: 1px solid var(--accent-purple);
+    padding: 12px;
+    border-radius: 8px;
+    width: max-content;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s, top 0.2s;
+    pointer-events: none;
+    z-index: 200;
+}
+.rel-node:hover .rel-tooltip {
+    opacity: 1;
+    visibility: visible;
+    top: 35px;
+}
+.rel-tooltip-title { color: var(--accent-purple); font-weight: bold; font-size: 1rem; margin-bottom: 5px; }
+.rel-tooltip-body { color: var(--text-muted); font-size: 0.85rem; line-height: 1.4; }
+.rel-tooltip-body strong { color: var(--text-main); }
+
+/* --- SVG Styling --- */
+.rel-line {
+    stroke: var(--accent-purple);
+    stroke-width: 2.5;
+    fill: none;
+    stroke-linejoin: round;
+}
+
+/* --- Legend & Help --- */
+.legend-list { list-style: none; margin-top: 10px; }
+.legend-list li { margin-bottom: 8px; font-size: 0.9rem; display: flex; align-items: center; gap: 10px;}
+.help-content p { font-size: 0.85rem; margin-bottom: 12px; color: var(--text-muted); line-height: 1.4;}
+
+/* --- Icons --- */
+.icon.pk { color: var(--color-pk); }
+.icon.fk { color: var(--color-fk); }
+.icon.unique { color: var(--color-unique); }
+.icon.nullable { color: var(--color-nullable); }
+.icon.rel { color: var(--accent-purple); }
+
+/* --- CHANGED: Helper/Guidance Floating Bubble/Badge --- */
+.helper-bubble {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(26, 32, 44, 0.95);
+    border: 1px solid var(--accent-purple);
+    padding: 10px 16px;
+    border-radius: 50px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    backdrop-filter: blur(8px);
+    font-size: 0.85rem;
+    color: var(--text-main);
+    margin-top: 20px;
+    width: fit-content;
+    animation: fadeIn 0.3s ease;
+    transition: all 0.2s ease;
+}
+
+.helper-bubble .close-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0 2px 0 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+    line-height: 1;
+}
+
+.helper-bubble .close-btn:hover {
+    color: #e53e3e;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
