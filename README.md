@@ -82,6 +82,8 @@ Once you have Node.js installed, follow these commands in your project's root fo
 *   **Custom Region**: Click the **✂️ Export Selection** button. The screen will dim—simply click and drag a custom rectangle over the canvas, then click **"Export Selection PNG"** to grab a pixel-perfect snapshot of just that region.
 
 ---
+(Sample)[./example.png]
+---
 
 ## 🛠️ Built With
 
