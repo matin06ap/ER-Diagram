@@ -4,8 +4,8 @@ import { Table, Relationship, Attribute } from './types';
 // Helper functions for shape layout and line connection math
 function getTableHeight(table: Table): number {
   const visibleAttrs = table.attributes.filter(attr => !attr.fk).length;
-  if (visibleAttrs === 0) return 40; // only header
-  return 40 + (visibleAttrs * 26) + 20; // 40 header + attrs * 26 + 20 padding
+  if (visibleAttrs === 0) return 60; // 40 header + 20 body padding
+  return 40 + 20 + (visibleAttrs * 26); // 40 header + 20 body padding + attrs * 26
 }
 
 interface Point {
@@ -21,6 +21,22 @@ function getRectIntersection(rect: { x: number, y: number, w: number, h: number 
   const dy = target.y - cy;
   
   if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  
+  // Handle vertical line
+  if (dx === 0) {
+    return {
+      x: cx,
+      y: dy > 0 ? rect.y + rect.h : rect.y
+    };
+  }
+  
+  // Handle horizontal line
+  if (dy === 0) {
+    return {
+      x: dx > 0 ? rect.x + rect.w : rect.x,
+      y: cy
+    };
+  }
   
   const slope = dy / dx;
   const rectSlope = rect.h / rect.w;
@@ -44,21 +60,27 @@ function getRectIntersection(rect: { x: number, y: number, w: number, h: number 
       ix = cx + (rect.h / 2) / slope;
     } else {
       iy = rect.y;
-      ix = cy - (rect.h / 2) / slope;
+      ix = cx - (rect.h / 2) / slope;
     }
   }
   
   return { x: ix, y: iy };
 }
 
-function getCircleIntersection(center: Point, r: number, target: Point): Point {
+function getDiamondIntersection(center: Point, target: Point): Point {
   const dx = target.x - center.x;
   const dy = target.y - center.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist === 0) return center;
+  if (dx === 0 && dy === 0) return center;
+  
+  // The boundary of the diamond rotated by 45 degrees satisfies |x| + |y| = d
+  // Side length is 40px, half diagonal is 40 / sqrt(2) = 28.28px.
+  // Add 1.2px for half of the 2.5px stroke width to touch perfectly, d = 29.5px.
+  const d = 29.5;
+  const t = d / (Math.abs(dx) + Math.abs(dy));
+  
   return {
-    x: center.x + (dx / dist) * r,
-    y: center.y + (dy / dist) * r,
+    x: center.x + dx * t,
+    y: center.y + dy * t
   };
 }
 
@@ -509,6 +531,49 @@ export default function App() {
     }));
   };
 
+  const handleReorderRelAttribute = (relId: string, attrId: string, direction: 'up' | 'down') => {
+    setRelationships(prev => prev.map(r => {
+      if (r.id === relId) {
+        const currentAttrs = r.attributes || [];
+        const index = currentAttrs.findIndex(a => a.id === attrId);
+        if (index === -1) return r;
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= currentAttrs.length) return r;
+        
+        const updatedAttrs = [...currentAttrs];
+        const temp = updatedAttrs[index];
+        updatedAttrs[index] = updatedAttrs[targetIndex];
+        updatedAttrs[targetIndex] = temp;
+        
+        return {
+          ...r,
+          attributes: updatedAttrs,
+        };
+      }
+      return r;
+    }));
+  };
+
+  const handleMoveRelAttribute = (relId: string, draggedId: string, targetIndex: number) => {
+    setRelationships(prev => prev.map(r => {
+      if (r.id === relId) {
+        const currentAttrs = r.attributes || [];
+        const index = currentAttrs.findIndex(a => a.id === draggedId);
+        if (index === -1) return r;
+        
+        const updatedAttrs = [...currentAttrs];
+        const [moved] = updatedAttrs.splice(index, 1);
+        updatedAttrs.splice(targetIndex, 0, moved);
+        
+        return {
+          ...r,
+          attributes: updatedAttrs,
+        };
+      }
+      return r;
+    }));
+  };
+
   const handleCloseGuidePermanently = () => {
     // CHANGED: Permanently hides the guide element
     setGuideHidden(true);
@@ -540,13 +605,13 @@ export default function App() {
       if (t1.id === t2.id) {
         edge1 = { x: t1.x + 50, y: t1.y };
         edge2 = { x: t1.x + 170, y: t1.y };
-        dia1 = getCircleIntersection(m, 22, edge1);
-        dia2 = getCircleIntersection(m, 22, edge2);
+        dia1 = getDiamondIntersection(m, edge1);
+        dia2 = getDiamondIntersection(m, edge2);
       } else {
         edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: 220, h: t1h }, m);
         edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: 220, h: t2h }, m);
-        dia1 = getCircleIntersection(m, 22, t1c);
-        dia2 = getCircleIntersection(m, 22, t2c);
+        dia1 = getDiamondIntersection(m, t1c);
+        dia2 = getDiamondIntersection(m, t2c);
       }
 
       // Determine segments to draw (double line if total participation is enabled)
@@ -569,10 +634,18 @@ export default function App() {
       const c1 = cardParts[0] || '1';
       const c2 = cardParts[1] || 'N';
 
-      const label1X = edge1.x + (dia1.x - edge1.x) * 0.35;
-      const label1Y = edge1.y + (dia1.y - edge1.y) * 0.35;
-      const label2X = edge2.x + (dia2.x - edge2.x) * 0.35;
-      const label2Y = edge2.y + (dia2.y - edge2.y) * 0.35;
+      // Smart cardinality positions (fixed distance of 20px from boundary if line is long enough)
+      const dx1 = dia1.x - edge1.x;
+      const dy1 = dia1.y - edge1.y;
+      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      const label1X = len1 > 45 ? edge1.x + (dx1 / len1) * 20 : edge1.x + dx1 * 0.4;
+      const label1Y = len1 > 45 ? edge1.y + (dy1 / len1) * 20 : edge1.y + dy1 * 0.4;
+
+      const dx2 = dia2.x - edge2.x;
+      const dy2 = dia2.y - edge2.y;
+      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      const label2X = len2 > 45 ? edge2.x + (dx2 / len2) * 20 : edge2.x + dx2 * 0.4;
+      const label2Y = len2 > 45 ? edge2.y + (dy2 / len2) * 20 : edge2.y + dy2 * 0.4;
 
       const hasAttrs = rel.attributes && rel.attributes.length > 0;
       const attrBoxX = mx + 60;
@@ -654,7 +727,6 @@ export default function App() {
 
         attrsBoxHtml = `
           <div class="rel-attr-box" style="left: ${mx + 60}px; top: ${my - 40}px;">
-            <div class="rel-attr-title">Attributes</div>
             ${itemsHtml}
           </div>
         `;
@@ -988,8 +1060,36 @@ export default function App() {
                       </button>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {(rel.attributes || []).map(attr => (
-                        <div key={attr.id} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      {(rel.attributes || []).map((attr, idx) => (
+                        <div
+                          key={attr.id}
+                          style={{ display: 'flex', gap: '4px', alignItems: 'center' }}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', attr.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const draggedId = e.dataTransfer.getData('text/plain');
+                            if (draggedId !== attr.id) {
+                              const targetIdx = (rel.attributes || []).findIndex(a => a.id === attr.id);
+                              if (targetIdx !== -1) {
+                                handleMoveRelAttribute(rel.id, draggedId, targetIdx);
+                              }
+                            }
+                          }}
+                        >
+                          <span
+                            className="cursor-grab text-gray-500 hover:text-gray-300 select-none text-[11px] px-1"
+                            title="Drag to reorder"
+                            onMouseDown={(e) => e.stopPropagation()}
+                          >
+                            ☰
+                          </span>
                           <input
                             type="text"
                             className="input-field"
@@ -999,9 +1099,28 @@ export default function App() {
                             onChange={(e) => handleUpdateRelAttribute(rel.id, attr.id, e.target.value)}
                           />
                           <button
+                            className="btn btn-sm"
+                            style={{ padding: '2px 4px', fontSize: '10px' }}
+                            onClick={() => handleReorderRelAttribute(rel.id, attr.id, 'up')}
+                            disabled={idx === 0}
+                            title="Move Up"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            className="btn btn-sm"
+                            style={{ padding: '2px 4px', fontSize: '10px' }}
+                            onClick={() => handleReorderRelAttribute(rel.id, attr.id, 'down')}
+                            disabled={idx === (rel.attributes || []).length - 1}
+                            title="Move Down"
+                          >
+                            ▼
+                          </button>
+                          <button
                             className="btn btn-sm btn-danger"
                             style={{ padding: '2px 6px', fontSize: '10px' }}
                             onClick={() => handleDeleteRelAttribute(rel.id, attr.id)}
+                            title="Delete Attribute"
                           >
                             X
                           </button>
@@ -1066,13 +1185,13 @@ export default function App() {
                 // Self relationship connection points at top-left and top-right of table
                 edge1 = { x: t1.x + 50, y: t1.y };
                 edge2 = { x: t1.x + 170, y: t1.y };
-                dia1 = getCircleIntersection(m, 22, edge1);
-                dia2 = getCircleIntersection(m, 22, edge2);
+                dia1 = getDiamondIntersection(m, edge1);
+                dia2 = getDiamondIntersection(m, edge2);
               } else {
                 edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: 220, h: t1h }, m);
                 edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: 220, h: t2h }, m);
-                dia1 = getCircleIntersection(m, 22, t1c);
-                dia2 = getCircleIntersection(m, 22, t2c);
+                dia1 = getDiamondIntersection(m, t1c);
+                dia2 = getDiamondIntersection(m, t2c);
               }
 
               // Determine segments to draw (double line if total participation is enabled)
@@ -1095,11 +1214,18 @@ export default function App() {
               const c1 = cardParts[0] || '1';
               const c2 = cardParts[1] || 'N';
 
-              // Positions for cardinality labels (35% along the segment from the entity boundary to the diamond)
-              const label1X = edge1.x + (dia1.x - edge1.x) * 0.35;
-              const label1Y = edge1.y + (dia1.y - edge1.y) * 0.35;
-              const label2X = edge2.x + (dia2.x - edge2.x) * 0.35;
-              const label2Y = edge2.y + (dia2.y - edge2.y) * 0.35;
+              // Smart cardinality positions (fixed distance of 20px from boundary if line is long enough)
+              const dx1 = dia1.x - edge1.x;
+              const dy1 = dia1.y - edge1.y;
+              const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+              const label1X = len1 > 45 ? edge1.x + (dx1 / len1) * 20 : edge1.x + dx1 * 0.4;
+              const label1Y = len1 > 45 ? edge1.y + (dy1 / len1) * 20 : edge1.y + dy1 * 0.4;
+
+              const dx2 = dia2.x - edge2.x;
+              const dy2 = dia2.y - edge2.y;
+              const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+              const label2X = len2 > 45 ? edge2.x + (dx2 / len2) * 20 : edge2.x + dx2 * 0.4;
+              const label2Y = len2 > 45 ? edge2.y + (dy2 / len2) * 20 : edge2.y + dy2 * 0.4;
 
               const hasAttrs = rel.attributes && rel.attributes.length > 0;
               const attrBoxX = mx + 60;
@@ -1275,24 +1401,47 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Relationship Attribute Box */}
-                  {hasAttrs && (
-                    <div
-                      className="rel-attr-box"
-                      style={{
-                        left: `${mx + 60}px`,
-                        top: `${my - 40}px`,
-                      }}
-                    >
-                      <div className="rel-attr-title">Attributes</div>
-                      {rel.attributes?.map(attr => (
-                        <div key={attr.id} className="rel-attr-item">
-                          <span className="rel-attr-bullet">○</span>
-                          <span>{attr.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                   {/* Relationship Attribute Box */}
+                   {hasAttrs && (
+                     <div
+                       className="rel-attr-box"
+                       style={{
+                         left: `${mx + 60}px`,
+                         top: `${my - 40}px`,
+                         pointerEvents: 'auto',
+                       }}
+                       onMouseDown={(e) => e.stopPropagation()}
+                     >
+                       {rel.attributes?.map((attr, idx) => (
+                         <div
+                           key={attr.id}
+                           className="rel-attr-item cursor-grab select-none active:cursor-grabbing hover:bg-white/5 px-1 rounded transition-colors"
+                           draggable
+                           onDragStart={(e) => {
+                             e.stopPropagation();
+                             e.dataTransfer.setData('text/plain', attr.id);
+                             e.dataTransfer.setData('source-rel', rel.id);
+                           }}
+                           onDragOver={(e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                           }}
+                           onDrop={(e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                             const draggedId = e.dataTransfer.getData('text/plain');
+                             const sourceRelId = e.dataTransfer.getData('source-rel');
+                             if (sourceRelId === rel.id && draggedId !== attr.id) {
+                               handleMoveRelAttribute(rel.id, draggedId, idx);
+                             }
+                           }}
+                         >
+                           <span className="rel-attr-bullet">○</span>
+                           <span>{attr.name}</span>
+                         </div>
+                       ))}
+                     </div>
+                   )}
                 </React.Fragment>
               );
             })}
