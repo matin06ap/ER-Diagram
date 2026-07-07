@@ -611,7 +611,66 @@ export default function App() {
 
   // --- EXPORT STATIC ERD ---
   const handleExportStatic = () => {
-    // Export output keeps the exact structure but omits left panel, right panel, and edit UI
+    // Calculate diagram bounding box dynamically to prevent any cropping/clipping
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    if (tables.length === 0 && relationships.length === 0) {
+      minX = 100;
+      minY = 100;
+      maxX = 800;
+      maxY = 600;
+    } else {
+      // Calculate boundaries from tables
+      tables.forEach(table => {
+        const tableH = getTableHeight(table);
+        const w = 220; // Table cards are 220px wide
+        minX = Math.min(minX, table.x);
+        maxX = Math.max(maxX, table.x + w);
+        minY = Math.min(minY, table.y);
+        maxY = Math.max(maxY, table.y + tableH);
+      });
+
+      // Calculate boundaries from relationships and attribute boxes
+      relationships.forEach(rel => {
+        const t1 = tables.find(t => t.id === rel.t1);
+        const t2 = tables.find(t => t.id === rel.t2);
+        if (t1 && t2) {
+          const t1h = getTableHeight(t1);
+          const t2h = getTableHeight(t2);
+          const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
+          const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
+          const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+          const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+
+          minX = Math.min(minX, mx - 30);
+          maxX = Math.max(maxX, mx + 30);
+          minY = Math.min(minY, my - 30);
+          maxY = Math.max(maxY, my + 30);
+
+          const hasAttrs = rel.attributes && rel.attributes.length > 0;
+          if (hasAttrs) {
+            const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+            const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
+            // Attribute boxes are usually 110-120px wide and have dynamic height
+            minX = Math.min(minX, ax - 10);
+            maxX = Math.max(maxX, ax + 140);
+            minY = Math.min(minY, ay - 10);
+            maxY = Math.max(maxY, ay + 110);
+          }
+        }
+      });
+    }
+
+    // Define padded canvas size centered on the visual components
+    const padding = 80;
+    const canvasWidth = (maxX - minX) + padding * 2;
+    const canvasHeight = (maxY - minY) + padding * 2;
+    const shiftX = -minX + padding;
+    const shiftY = -minY + padding;
+
     const polylinesHtml = relationships.map(rel => {
       const t1 = tables.find(t => t.id === rel.t1);
       const t2 = tables.find(t => t.id === rel.t2);
@@ -681,23 +740,23 @@ export default function App() {
       const attrBoxY = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
 
       const lines1Html = line1Segments.map(seg => `
-        <line x1="${seg.x1}" y1="${seg.y1}" x2="${seg.x2}" y2="${seg.y2}" class="rel-line"></line>
+        <line x1="${seg.x1 + shiftX}" y1="${seg.y1 + shiftY}" x2="${seg.x2 + shiftX}" y2="${seg.y2 + shiftY}" class="rel-line"></line>
       `).join('\n');
 
       const lines2Html = line2Segments.map(seg => `
-        <line x1="${seg.x1}" y1="${seg.y1}" x2="${seg.x2}" y2="${seg.y2}" class="rel-line"></line>
+        <line x1="${seg.x1 + shiftX}" y1="${seg.y1 + shiftY}" x2="${seg.x2 + shiftX}" y2="${seg.y2 + shiftY}" class="rel-line"></line>
       `).join('\n');
 
       const dashedConnectorHtml = hasAttrs ? `
-        <line x1="${mx}" y1="${my}" x2="${attrBoxX}" y2="${attrBoxY + 12}" stroke="#6366f1" stroke-dasharray="4,4" stroke-width="1.5"></line>
+        <line x1="${mx + shiftX}" y1="${my + shiftY}" x2="${attrBoxX + shiftX}" y2="${attrBoxY + 12 + shiftY}" stroke="#6366f1" stroke-dasharray="4,4" stroke-width="1.5"></line>
       ` : '';
 
       return `
         ${dashedConnectorHtml}
         ${lines1Html}
         ${lines2Html}
-        <text x="${label1X}" y="${label1Y}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c1}</text>
-        <text x="${label2X}" y="${label2Y}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c2}</text>
+        <text x="${label1X + shiftX}" y="${label1Y + shiftY}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c1}</text>
+        <text x="${label2X + shiftX}" y="${label2Y + shiftY}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c2}</text>
       `;
     }).join('\n');
 
@@ -718,7 +777,7 @@ export default function App() {
       }).join('\n');
 
       return `
-        <div class="table-node" id="node_${table.id}" style="left: ${table.x}px; top: ${table.y}px; z-index: ${index + 10}; cursor: default;">
+        <div class="table-node" id="node_${table.id}" style="left: ${table.x + shiftX}px; top: ${table.y + shiftY}px; z-index: ${index + 10}; cursor: default;">
           <div class="table-node-header" style="cursor: default;">
             <span>${table.name}</span>
             <div style="display: flex; gap: 6px; opacity: 0.6;">
@@ -757,14 +816,14 @@ export default function App() {
         `).join('\n');
 
         attrsBoxHtml = `
-          <div class="rel-attr-box" style="left: ${ax}px; top: ${ay}px;">
+          <div class="rel-attr-box" style="left: ${ax + shiftX}px; top: ${ay + shiftY}px;">
             ${itemsHtml}
           </div>
         `;
       }
 
       return `
-        <div class="rel-node" id="rel_node_${rel.id}" style="left: ${mx}px; top: ${my}px; cursor: help;">
+        <div class="rel-node" id="rel_node_${rel.id}" style="left: ${mx + shiftX}px; top: ${my + shiftY}px; cursor: help;">
           <div class="rel-diamond-shape"></div>
           <div class="rel-text-label">${rel.name.substring(0, 5)}</div>
           <div class="rel-tooltip">
@@ -804,10 +863,35 @@ export default function App() {
             --color-nullable: #718096;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { margin: 0; overflow: auto; background-color: var(--bg-dark); cursor: default; font-family: var(--font-family); color: var(--text-main); }
-        .canvas-viewport { position: relative; width: 100vw; height: 100vh; overflow: auto; background-image: radial-gradient(var(--border-color) 1px, transparent 1px); background-size: 20px 20px; }
-        .canvas { position: absolute; transform-origin: 0 0; width: 5000px; height: 5000px; }
-        #svg-layer, #tables-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        body {
+            margin: 0;
+            padding: 40px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--bg-dark);
+            cursor: default;
+            font-family: var(--font-family);
+            color: var(--text-main);
+            box-sizing: border-box;
+            background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+            overflow: auto;
+        }
+        .canvas-container {
+            position: relative;
+            width: ${canvasWidth}px;
+            height: ${canvasHeight}px;
+            box-sizing: border-box;
+        }
+        #svg-layer, #tables-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
         #svg-layer { pointer-events: none; z-index: 1; }
         #tables-layer { z-index: 2; pointer-events: none; }
         .table-node { position: absolute; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 220px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6); overflow: hidden; pointer-events: auto; }
@@ -841,13 +925,11 @@ export default function App() {
     </style>
 </head>
 <body>
-    <div class="canvas-viewport">
-        <div class="canvas" style="transform: scale(${scale}); top: ${-panY}px; left: ${-panX}px;">
-            <svg id="svg-layer">${polylinesHtml}</svg>
-            <div id="tables-layer">
-                ${tablesHtml}
-                ${relsHtml}
-            </div>
+    <div class="canvas-container">
+        <svg id="svg-layer" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}">${polylinesHtml}</svg>
+        <div id="tables-layer">
+            ${tablesHtml}
+            ${relsHtml}
         </div>
     </div>
 </body>
@@ -951,30 +1033,45 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#0A0A0A] text-gray-300 font-sans overflow-hidden select-none" id="app-container">
+    <div className="h-screen w-screen flex flex-col bg-[#09090B] text-zinc-300 font-sans overflow-hidden select-none" id="app-container">
       {/* Header Navigation */}
-      <header className="h-14 border-b border-[#262626] bg-[#121212] flex items-center justify-between px-6 shrink-0 z-30">
+      <header className="h-14 border-b border-[#27272a] bg-[#0d0d10]/95 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-30 shadow-md shadow-black/35">
         <div className="flex items-center gap-4">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-md shadow-blue-900/30">
+          <div className="w-8 h-8 bg-gradient-to-tr from-blue-700 to-blue-500 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 hover:scale-105 transition-transform duration-200">
             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
             </svg>
           </div>
-          <h1 className="text-base font-semibold tracking-tight text-gray-100 flex items-center gap-2">
+          <h1 className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
             StructView
-            <span className="text-[10px] font-mono font-normal text-gray-500 bg-[#1e1e1e] px-1.5 py-0.5 rounded border border-[#2d2d2d]">v2.4.1</span>
+            <span className="text-[9px] font-mono font-medium text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded-full border border-zinc-700/60">v2.4.1</span>
           </h1>
         </div>
         
-        <div className="flex items-center gap-3">
-          <button onClick={handleSaveManual} className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700 transition-colors cursor-pointer font-medium">
-            Save Layout
+        <div className="flex items-center gap-2.5">
+          <button 
+            onClick={handleSaveManual} 
+            className="px-3.5 py-1.5 text-xs bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-lg border border-zinc-700 transition-all duration-200 cursor-pointer font-semibold shadow-sm active:scale-[0.97] flex items-center gap-1.5"
+            id="save-layout-btn"
+          >
+            <span>💾</span>
+            <span>Save Layout</span>
           </button>
-          <button onClick={handleClearSaved} className="px-3 py-1.5 text-xs bg-red-950/40 hover:bg-red-900/50 text-red-400 rounded border border-red-900/40 transition-colors cursor-pointer font-medium">
-            Reset Canvas
+          <button 
+            onClick={handleClearSaved} 
+            className="px-3.5 py-1.5 text-xs bg-red-950/20 hover:bg-red-900/30 text-red-400 hover:text-red-300 rounded-lg border border-red-900/30 transition-all duration-200 cursor-pointer font-semibold shadow-sm active:scale-[0.97] flex items-center gap-1.5"
+            id="reset-canvas-btn"
+          >
+            <span>🧹</span>
+            <span>Reset Canvas</span>
           </button>
-          <button onClick={handleExportStatic} className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded font-medium transition-colors shadow-lg shadow-blue-900/20 cursor-pointer">
-            Export Static HTML
+          <button 
+            onClick={handleExportStatic} 
+            className="px-4 py-1.5 text-xs bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-semibold transition-all duration-200 shadow-md shadow-blue-500/10 hover:shadow-blue-500/25 active:scale-[0.97] cursor-pointer flex items-center gap-1.5"
+            id="export-btn"
+          >
+            <span>📤</span>
+            <span>Export Static HTML</span>
           </button>
         </div>
       </header>
