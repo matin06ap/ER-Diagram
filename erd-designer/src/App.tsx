@@ -239,6 +239,7 @@ export default function App() {
   const [draggedTableId, setDraggedTableId] = useState<string | null>(null);
   const [draggedRelId, setDraggedRelId] = useState<string | null>(null);
   const [draggedRelAttr, setDraggedRelAttr] = useState<{ relId: string; attrId: string } | null>(null);
+  const [draggedRelAttrBoxId, setDraggedRelAttrBoxId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState<boolean>(false);
 
   const dragStart = useRef({ x: 0, y: 0, itemX: 0, itemY: 0 });
@@ -334,6 +335,19 @@ export default function App() {
           }
           return r;
         }));
+      } else if (draggedRelAttrBoxId) {
+        const dx = e.clientX - dragStart.current.x;
+        const dy = e.clientY - dragStart.current.y;
+        setRelationships(prev => prev.map(r => {
+          if (r.id === draggedRelAttrBoxId) {
+            return {
+              ...r,
+              ax: dragStart.current.itemX + dx / scale,
+              ay: dragStart.current.itemY + dy / scale,
+            };
+          }
+          return r;
+        }));
       }
     };
 
@@ -342,9 +356,10 @@ export default function App() {
       setDraggedTableId(null);
       setDraggedRelId(null);
       setDraggedRelAttr(null);
+      setDraggedRelAttrBoxId(null);
     };
 
-    if (isPanning || draggedTableId || draggedRelId || draggedRelAttr) {
+    if (isPanning || draggedTableId || draggedRelId || draggedRelAttr || draggedRelAttrBoxId) {
       window.addEventListener('mousemove', handleGlobalMouseMove);
       window.addEventListener('mouseup', handleGlobalMouseUp);
     }
@@ -353,7 +368,7 @@ export default function App() {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [isPanning, draggedTableId, draggedRelId, draggedRelAttr, scale]);
+  }, [isPanning, draggedTableId, draggedRelId, draggedRelAttr, draggedRelAttrBoxId, scale]);
 
   // --- ACTIONS ---
   const handleSaveManual = () => {
@@ -662,8 +677,8 @@ export default function App() {
       const label2Y = len2 > 45 ? edge2.y + (dy2 / len2) * 20 : edge2.y + dy2 * 0.4;
 
       const hasAttrs = rel.attributes && rel.attributes.length > 0;
-      const attrBoxX = mx + 60;
-      const attrBoxY = my - 40;
+      const attrBoxX = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+      const attrBoxY = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
 
       const lines1Html = line1Segments.map(seg => `
         <line x1="${seg.x1}" y1="${seg.y1}" x2="${seg.x2}" y2="${seg.y2}" class="rel-line"></line>
@@ -732,6 +747,8 @@ export default function App() {
       const hasAttrs = rel.attributes && rel.attributes.length > 0;
       let attrsBoxHtml = '';
       if (hasAttrs) {
+        const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+        const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
         const itemsHtml = (rel.attributes || []).map(attr => `
           <div class="rel-attr-item">
             <span class="rel-attr-bullet">○</span>
@@ -740,7 +757,7 @@ export default function App() {
         `).join('\n');
 
         attrsBoxHtml = `
-          <div class="rel-attr-box" style="left: ${mx + 60}px; top: ${my - 40}px;">
+          <div class="rel-attr-box" style="left: ${ax}px; top: ${ay}px;">
             ${itemsHtml}
           </div>
         `;
@@ -885,6 +902,36 @@ export default function App() {
           y: e.clientY,
           itemX: currentMx,
           itemY: currentMy,
+        };
+      }
+    }
+  };
+
+  const handleRelAttrBoxMouseDown = (e: React.MouseEvent, relId: string) => {
+    e.stopPropagation();
+    setDraggedRelAttrBoxId(relId);
+    const rel = relationships.find(r => r.id === relId);
+    if (rel) {
+      const t1 = tables.find(t => t.id === rel.t1);
+      const t2 = tables.find(t => t.id === rel.t2);
+      if (t1 && t2) {
+        let x1 = t1.x + 110;
+        let x2 = t2.x + 110;
+        let y1 = t1.y + 20;
+        let y2 = t2.y + 20;
+        if (t1.id === t2.id) {
+          x1 = t1.x + 50;
+          x2 = t1.x + 170;
+        }
+        const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
+        const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
+        const currentAx = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+        const currentAy = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
+        dragStart.current = {
+          x: e.clientX,
+          y: e.clientY,
+          itemX: currentAx,
+          itemY: currentAy,
         };
       }
     }
@@ -1242,8 +1289,8 @@ export default function App() {
               const label2Y = len2 > 45 ? edge2.y + (dy2 / len2) * 20 : edge2.y + dy2 * 0.4;
 
               const hasAttrs = rel.attributes && rel.attributes.length > 0;
-              const attrBoxX = mx + 60;
-              const attrBoxY = my - 40;
+              const attrBoxX = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+              const attrBoxY = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
 
               return (
                 <g key={rel.id}>
@@ -1416,38 +1463,33 @@ export default function App() {
                   </div>
 
                    {/* Relationship Attribute Box */}
-                   {hasAttrs && (
-                     <div
-                       className="rel-attr-box"
-                       style={{
-                         left: `${mx + 60}px`,
-                         top: `${my - 40}px`,
-                         pointerEvents: 'auto',
-                       }}
-                       onMouseDown={(e) => e.stopPropagation()}
-                     >
-                       {rel.attributes?.map((attr) => {
-                         const isBeingDragged = draggedRelAttr?.relId === rel.id && draggedRelAttr?.attrId === attr.id;
-                         return (
+                   {hasAttrs && (() => {
+                     const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+                     const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
+                     const isDraggingThisBox = draggedRelAttrBoxId === rel.id;
+                     return (
+                       <div
+                         className={`rel-attr-box select-none cursor-grab ${isDraggingThisBox ? 'cursor-grabbing border-solid' : ''}`}
+                         style={{
+                           left: `${ax}px`,
+                           top: `${ay}px`,
+                           pointerEvents: 'auto',
+                           zIndex: isDraggingThisBox ? 110 : 45,
+                         }}
+                         onMouseDown={(e) => handleRelAttrBoxMouseDown(e, rel.id)}
+                       >
+                         {rel.attributes?.map((attr) => (
                            <div
                              key={attr.id}
-                             className={`rel-attr-item cursor-grab select-none active:cursor-grabbing hover:bg-white/5 px-1 rounded transition-colors ${
-                               isBeingDragged ? 'opacity-40 border border-dashed border-[#6366f1] bg-[#6366f1]/10' : ''
-                             }`}
-                             onMouseDown={(e) => {
-                               e.stopPropagation();
-                               e.preventDefault();
-                               setDraggedRelAttr({ relId: rel.id, attrId: attr.id });
-                             }}
-                             onMouseEnter={() => handleRelAttrMouseEnter(rel.id, attr.id)}
+                             className="rel-attr-item px-1 rounded transition-colors"
                            >
                              <span className="rel-attr-bullet">○</span>
                              <span>{attr.name}</span>
                            </div>
-                         );
-                       })}
-                     </div>
-                   )}
+                         ))}
+                       </div>
+                     );
+                   })()}
                 </React.Fragment>
               );
             })}

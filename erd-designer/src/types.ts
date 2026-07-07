@@ -27,4 +27,6 @@ export interface Relationship {
   attributes?: Attribute[];
   total1?: boolean;
   total2?: boolean;
+  ax?: number | null; // Dragged attribute box x position
+  ay?: number | null; // Dragged attribute box y position
 }
