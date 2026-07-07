@@ -214,49 +214,15 @@ function getRectIntersection(rect: { x: number, y: number, w: number, h: number 
   
   if (dx === 0 && dy === 0) return { x: cx, y: cy };
   
-  // Handle vertical line
-  if (dx === 0) {
-    return {
-      x: cx,
-      y: dy > 0 ? rect.y + rect.h : rect.y
-    };
-  }
+  const t_x = dx === 0 ? Infinity : (rect.w / 2) / Math.abs(dx);
+  const t_y = dy === 0 ? Infinity : (rect.h / 2) / Math.abs(dy);
   
-  // Handle horizontal line
-  if (dy === 0) {
-    return {
-      x: dx > 0 ? rect.x + rect.w : rect.x,
-      y: cy
-    };
-  }
+  const t = Math.min(t_x, t_y);
   
-  const slope = dy / dx;
-  const rectSlope = rect.h / rect.w;
-  
-  let ix = cx;
-  let iy = cy;
-  
-  if (Math.abs(slope) <= rectSlope) {
-    // Intersects left or right boundary
-    if (dx > 0) {
-      ix = rect.x + rect.w;
-      iy = cy + (rect.w / 2) * slope;
-    } else {
-      ix = rect.x;
-      iy = cy - (rect.w / 2) * slope;
-    }
-  } else {
-    // Intersects top or bottom boundary
-    if (dy > 0) {
-      iy = rect.y + rect.h;
-      ix = cx + (rect.h / 2) / slope;
-    } else {
-      iy = rect.y;
-      ix = cx - (rect.h / 2) / slope;
-    }
-  }
-  
-  return { x: ix, y: iy };
+  return {
+    x: cx + dx * t,
+    y: cy + dy * t
+  };
 }
 
 function getRhombusIntersection(center: Point, target: Point, w: number, h: number): Point {
@@ -1617,7 +1583,7 @@ export default function App() {
           }}
         >
           {/* SVG Layer for drawing relationship lines */}
-          <svg id="svg-layer">
+          <svg id="svg-layer" style={{ overflow: 'visible' }}>
             {relationships.map(rel => {
               const n1 = getNodeDetails(rel.t1, tables, relationships);
               const n2 = getNodeDetails(rel.t2, tables, relationships);
@@ -1682,14 +1648,14 @@ export default function App() {
               const dx1 = dia1.x - edge1.x;
               const dy1 = dia1.y - edge1.y;
               const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-              const label1X = len1 > 45 ? edge1.x + (dx1 / len1) * 20 : edge1.x + dx1 * 0.4;
-              const label1Y = len1 > 45 ? edge1.y + (dy1 / len1) * 20 : edge1.y + dy1 * 0.4;
+              const label1X = len1 > 45 ? edge1.x + (dx1 / len1) * 20 : (len1 > 0 ? edge1.x + dx1 * 0.4 : edge1.x);
+              const label1Y = len1 > 45 ? edge1.y + (dy1 / len1) * 20 : (len1 > 0 ? edge1.y + dy1 * 0.4 : edge1.y);
 
               const dx2 = dia2.x - edge2.x;
               const dy2 = dia2.y - edge2.y;
               const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-              const label2X = len2 > 45 ? edge2.x + (dx2 / len2) * 20 : edge2.x + dx2 * 0.4;
-              const label2Y = len2 > 45 ? edge2.y + (dy2 / len2) * 20 : edge2.y + dy2 * 0.4;
+              const label2X = len2 > 45 ? edge2.x + (dx2 / len2) * 20 : (len2 > 0 ? edge2.x + dx2 * 0.4 : edge2.x);
+              const label2Y = len2 > 45 ? edge2.y + (dy2 / len2) * 20 : (len2 > 0 ? edge2.y + dy2 * 0.4 : edge2.y);
 
               const hasAttrs = rel.attributes && rel.attributes.length > 0;
               const attrBoxX = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;

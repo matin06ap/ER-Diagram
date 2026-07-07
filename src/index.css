@@ -278,7 +278,7 @@ body {
     top: 0; left: 0;
     width: 100%; height: 100%;
 }
-#svg-layer { pointer-events: none; z-index: 1; }
+#svg-layer { pointer-events: none; z-index: 1; overflow: visible; }
 #tables-layer { z-index: 2; pointer-events: none; } /* tables and diamonds handle their own pointer events */
 
 /* --- ERD Table Cards (Canvas) --- */
