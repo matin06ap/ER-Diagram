@@ -101,6 +101,105 @@ export function getRelAttrBoxHeight(rel: Relationship): number {
   return totalItemsHeight + gapHeight + 16; // 16px vertical padding
 }
 
+export function getNodeDetails(id: string, tables: Table[], relationships: Relationship[]): {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  cx: number;
+  cy: number;
+  isTable: boolean;
+} | null {
+  const table = tables.find(t => t.id === id);
+  if (table) {
+    const w = getTableWidth(table);
+    const h = getTableHeight(table);
+    return {
+      id,
+      name: table.name,
+      x: table.x,
+      y: table.y,
+      w,
+      h,
+      cx: table.x + w / 2,
+      cy: table.y + h / 2,
+      isTable: true,
+    };
+  }
+
+  const rel = relationships.find(r => r.id === id);
+  if (rel) {
+    const relW = getRelationshipWidth(rel.name);
+    const relH = getRelationshipHeight(rel.name);
+
+    if (rel.mx !== null && rel.my !== null) {
+      return {
+        id,
+        name: rel.name,
+        x: rel.mx - relW / 2,
+        y: rel.my - relH / 2,
+        w: relW,
+        h: relH,
+        cx: rel.mx,
+        cy: rel.my,
+        isTable: false,
+      };
+    }
+
+    // Dynamic resolution if mx/my are null
+    // Avoid cyclic queries by passing a simplified tracker or limit
+    const n1 = tables.find(t => t.id === rel.t1);
+    const n2 = tables.find(t => t.id === rel.t2);
+    let cx = 0;
+    let cy = 0;
+    
+    if (n1 && n2) {
+      const n1w = getTableWidth(n1);
+      const n2w = getTableWidth(n2);
+      const n1h = getTableHeight(n1);
+      const n2h = getTableHeight(n2);
+      const n1c = { x: n1.x + n1w / 2, y: n1.y + n1h / 2 };
+      const n2c = { x: n2.x + n2w / 2, y: n2.y + n2h / 2 };
+      
+      cx = rel.t1 === rel.t2 ? n1.x + n1w / 2 : (n1c.x + n2c.x) / 2;
+      cy = rel.t1 === rel.t2 ? n1.y - 45 : (n1c.y + n2c.y) / 2;
+    } else {
+      // General fallback using a simple resolver for when endpoints are relationships
+      // We pass relationships with current rel removed to avoid infinite recursion
+      const remainingRels = relationships.filter(r => r.id !== id);
+      const ep1 = getNodeDetails(rel.t1, tables, remainingRels);
+      const ep2 = getNodeDetails(rel.t2, tables, remainingRels);
+      
+      if (ep1 && ep2) {
+        cx = rel.t1 === rel.t2 ? ep1.x + ep1.w / 2 : (ep1.cx + ep2.cx) / 2;
+        cy = rel.t1 === rel.t2 ? ep1.y - 45 : (ep1.cy + ep2.cy) / 2;
+      } else if (ep1) {
+        cx = ep1.cx;
+        cy = ep1.cy + 100;
+      } else {
+        cx = 250;
+        cy = 250;
+      }
+    }
+
+    return {
+      id,
+      name: rel.name,
+      x: cx - relW / 2,
+      y: cy - relH / 2,
+      w: relW,
+      h: relH,
+      cx,
+      cy,
+      isTable: false,
+    };
+  }
+
+  return null;
+}
+
 interface Point {
   x: number;
   y: number;
@@ -376,20 +475,28 @@ export default function App() {
   const [relCard, setRelCard] = useState<string>('1:N');
   const [relName, setRelName] = useState<string>('');
 
-  // Sync form options when tables change
+  // Drag-and-drop connection creation states
+  const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
+  const [connectionMousePos, setConnectionMousePos] = useState<{ x: number, y: number } | null>(null);
+
+  // Sync form options when tables or relationships change
   useEffect(() => {
-    if (tables.length > 0) {
-      if (!relT1 || !tables.some(t => t.id === relT1)) {
-        setRelT1(tables[0].id);
+    if (tables.length > 0 || relationships.length > 0) {
+      const allOptions = [
+        ...tables.map(t => t.id),
+        ...relationships.map(r => r.id)
+      ];
+      if (!relT1 || !allOptions.includes(relT1)) {
+        setRelT1(tables[0]?.id || relationships[0]?.id || '');
       }
-      if (!relT2 || !tables.some(t => t.id === relT2)) {
-        setRelT2(tables[1]?.id || tables[0].id);
+      if (!relT2 || !allOptions.includes(relT2)) {
+        setRelT2(tables[1]?.id || tables[0]?.id || relationships[0]?.id || '');
       }
     } else {
       setRelT1('');
       setRelT2('');
     }
-  }, [tables]);
+  }, [tables, relationships]);
 
   // --- AUTO-SAVE ---
   useEffect(() => {
@@ -473,6 +580,14 @@ export default function App() {
           }
           return r;
         }));
+      } else if (connectingSourceId) {
+        const parentRect = document.getElementById('canvas')?.getBoundingClientRect();
+        if (parentRect) {
+          setConnectionMousePos({
+            x: (e.clientX - parentRect.left) / scale,
+            y: (e.clientY - parentRect.top) / scale
+          });
+        }
       }
     };
 
@@ -482,9 +597,15 @@ export default function App() {
       setDraggedRelId(null);
       setDraggedRelAttr(null);
       setDraggedRelAttrBoxId(null);
+      if (connectingSourceId) {
+        setTimeout(() => {
+          setConnectingSourceId(null);
+          setConnectionMousePos(null);
+        }, 120);
+      }
     };
 
-    if (isPanning || draggedTableId || draggedRelId || draggedRelAttr || draggedRelAttrBoxId) {
+    if (isPanning || draggedTableId || draggedRelId || draggedRelAttr || draggedRelAttrBoxId || connectingSourceId) {
       window.addEventListener('mousemove', handleGlobalMouseMove);
       window.addEventListener('mouseup', handleGlobalMouseUp);
     }
@@ -493,7 +614,7 @@ export default function App() {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [isPanning, draggedTableId, draggedRelId, draggedRelAttr, draggedRelAttrBoxId, scale]);
+  }, [isPanning, draggedTableId, draggedRelId, draggedRelAttr, draggedRelAttrBoxId, connectingSourceId, scale]);
 
   // --- ACTIONS ---
   const handleSaveManual = () => {
@@ -537,7 +658,19 @@ export default function App() {
 
   const handleDeleteTable = (tableId: string) => {
     setTables(prev => prev.filter(t => t.id !== tableId));
-    setRelationships(prev => prev.filter(r => r.t1 !== tableId && r.t2 !== tableId));
+    setRelationships(prev => {
+      const idsToDelete = new Set([tableId]);
+      let size = 0;
+      while (idsToDelete.size !== size) {
+        size = idsToDelete.size;
+        prev.forEach(r => {
+          if (idsToDelete.has(r.t1) || idsToDelete.has(r.t2)) {
+            idsToDelete.add(r.id);
+          }
+        });
+      }
+      return prev.filter(r => !idsToDelete.has(r.id));
+    });
   };
 
   const handleUpdateTableName = (tableId: string, name: string) => {
@@ -613,7 +746,50 @@ export default function App() {
   };
 
   const handleDeleteRelationship = (relId: string) => {
-    setRelationships(prev => prev.filter(r => r.id !== relId));
+    setRelationships(prev => {
+      const idsToDelete = new Set([relId]);
+      let size = 0;
+      while (idsToDelete.size !== size) {
+        size = idsToDelete.size;
+        prev.forEach(r => {
+          if (idsToDelete.has(r.t1) || idsToDelete.has(r.t2)) {
+            idsToDelete.add(r.id);
+          }
+        });
+      }
+      return prev.filter(r => !idsToDelete.has(r.id));
+    });
+  };
+
+  const handleAddConnectionBetween = (srcId: string, destId: string) => {
+    if (srcId === destId) return;
+
+    // Check if relationship already exists
+    const exists = relationships.some(r => 
+      (r.t1 === srcId && r.t2 === destId) || (r.t1 === destId && r.t2 === srcId)
+    );
+    if (exists) {
+      setToastMessage('A relationship already exists between these elements!');
+      return;
+    }
+
+    const n1 = getNodeDetails(srcId, tables, relationships);
+    const n2 = getNodeDetails(destId, tables, relationships);
+    if (!n1 || !n2) return;
+
+    const name = 'Relates To';
+    const newRel: Relationship = {
+      id: 'rel_' + Date.now() + Math.random().toString(36).substr(2, 5),
+      t1: srcId,
+      t2: destId,
+      name,
+      cardinality: '1:N',
+      mx: null,
+      my: null,
+    };
+    
+    setRelationships(prev => [...prev, newRel]);
+    setToastMessage(`Connected ${n1.name} and ${n2.name}!`);
   };
 
   const handleToggleRelTotal = (relId: string, side: 1 | 2, checked: boolean) => {
@@ -770,17 +946,11 @@ export default function App() {
 
       // Calculate boundaries from relationships and attribute boxes
       relationships.forEach(rel => {
-        const t1 = tables.find(t => t.id === rel.t1);
-        const t2 = tables.find(t => t.id === rel.t2);
-        if (t1 && t2) {
-          const t1w = getTableWidth(t1);
-          const t1h = getTableHeight(t1);
-          const t2w = getTableWidth(t2);
-          const t2h = getTableHeight(t2);
-          const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
-          const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
-          const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
-          const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+        const n1 = getNodeDetails(rel.t1, tables, relationships);
+        const n2 = getNodeDetails(rel.t2, tables, relationships);
+        if (n1 && n2) {
+          const mx = rel.mx !== null ? rel.mx : (rel.t1 === rel.t2 ? n1.x + n1.w / 2 : (n1.cx + n2.cx) / 2);
+          const my = rel.my !== null ? rel.my : (rel.t1 === rel.t2 ? n1.y - 45 : (n1.cy + n2.cy) / 2);
 
           const relW = getRelationshipWidth(rel.name);
           const relH = getRelationshipHeight(rel.name);
@@ -1044,19 +1214,19 @@ export default function App() {
     setDraggedRelId(relId);
     const rel = relationships.find(r => r.id === relId);
     if (rel) {
-      const t1 = tables.find(t => t.id === rel.t1);
-      const t2 = tables.find(t => t.id === rel.t2);
-      if (t1 && t2) {
-        let x1 = t1.x + 110;
-        let x2 = t2.x + 110;
-        let y1 = t1.y + 20;
-        let y2 = t2.y + 20;
-        if (t1.id === t2.id) {
-          x1 = t1.x + 50;
-          x2 = t1.x + 170;
+      const n1 = getNodeDetails(rel.t1, tables, relationships);
+      const n2 = getNodeDetails(rel.t2, tables, relationships);
+      if (n1 && n2) {
+        let x1 = n1.cx;
+        let x2 = n2.cx;
+        let y1 = n1.cy;
+        let y2 = n2.cy;
+        if (rel.t1 === rel.t2) {
+          x1 = n1.x + 50;
+          x2 = n1.x + 170;
         }
-        const currentMx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
-        const currentMy = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
+        const currentMx = rel.mx !== null ? rel.mx : (rel.t1 === rel.t2 ? n1.x + 110 : (x1 + x2) / 2);
+        const currentMy = rel.my !== null ? rel.my : (rel.t1 === rel.t2 ? n1.y - 45 : (y1 + y2) / 2);
         dragStart.current = {
           x: e.clientX,
           y: e.clientY,
@@ -1072,19 +1242,19 @@ export default function App() {
     setDraggedRelAttrBoxId(relId);
     const rel = relationships.find(r => r.id === relId);
     if (rel) {
-      const t1 = tables.find(t => t.id === rel.t1);
-      const t2 = tables.find(t => t.id === rel.t2);
-      if (t1 && t2) {
-        let x1 = t1.x + 110;
-        let x2 = t2.x + 110;
-        let y1 = t1.y + 20;
-        let y2 = t2.y + 20;
-        if (t1.id === t2.id) {
-          x1 = t1.x + 50;
-          x2 = t1.x + 170;
+      const n1 = getNodeDetails(rel.t1, tables, relationships);
+      const n2 = getNodeDetails(rel.t2, tables, relationships);
+      if (n1 && n2) {
+        let x1 = n1.cx;
+        let x2 = n2.cx;
+        let y1 = n1.cy;
+        let y2 = n2.cy;
+        if (rel.t1 === rel.t2) {
+          x1 = n1.x + 50;
+          x2 = n1.x + 170;
         }
-        const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
-        const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
+        const mx = rel.mx !== null ? rel.mx : (rel.t1 === rel.t2 ? n1.x + 110 : (x1 + x2) / 2);
+        const my = rel.my !== null ? rel.my : (rel.t1 === rel.t2 ? n1.y - 45 : (y1 + y2) / 2);
         const currentAx = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
         const currentAy = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
         dragStart.current = {
@@ -1257,9 +1427,16 @@ export default function App() {
             </div>
             <div className="form-group row">
               <select id="rel-t1" className="input-field" value={relT1} onChange={(e) => setRelT1(e.target.value)}>
-                {tables.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
+                <optgroup label="Entities (Tables)">
+                  {tables.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Relationships (Diamonds)">
+                  {relationships.map(r => (
+                    <option key={r.id} value={r.id}>{r.name} ({r.cardinality})</option>
+                  ))}
+                </optgroup>
               </select>
               <select id="rel-card" className="input-field narrow" value={relCard} onChange={(e) => setRelCard(e.target.value)}>
                 <option value="1:1">1:1</option>
@@ -1268,9 +1445,16 @@ export default function App() {
                 <option value="N:M">N:M</option>
               </select>
               <select id="rel-t2" className="input-field" value={relT2} onChange={(e) => setRelT2(e.target.value)}>
-                {tables.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
+                <optgroup label="Entities (Tables)">
+                  {tables.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Relationships (Diamonds)">
+                  {relationships.map(r => (
+                    <option key={r.id} value={r.id}>{r.name} ({r.cardinality})</option>
+                  ))}
+                </optgroup>
               </select>
             </div>
             <div className="form-group row">
@@ -1286,19 +1470,19 @@ export default function App() {
             </div>
             <div id="sidebar-rel-list" className="list-container">
               {relationships.map(rel => {
-                const t1 = tables.find(t => t.id === rel.t1);
-                const t2 = tables.find(t => t.id === rel.t2);
-                if (!t1 || !t2) return null;
+                const n1 = getNodeDetails(rel.t1, tables, relationships);
+                const n2 = getNodeDetails(rel.t2, tables, relationships);
+                if (!n1 || !n2) return null;
                 return (
                   <div className="sidebar-item" key={rel.id}>
                     <div className="sidebar-item-header">
                       <span style={{ fontSize: '0.85rem' }}>
-                        {t1.name} <strong style={{ color: 'var(--accent-purple)' }}>[{rel.cardinality}]</strong> {t2.name}
+                        {n1.name} <strong style={{ color: 'var(--accent-purple)' }}>[{rel.cardinality}]</strong> {n2.name}
                       </span>
                       <button className="btn btn-sm btn-danger" onClick={() => handleDeleteRelationship(rel.id)}>X</button>
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Name: {rel.name}</div>
-
+ 
                     {/* Participation Toggles */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', marginBottom: '8px' }}>
                       <label className="flex items-center gap-1 cursor-pointer">
@@ -1307,7 +1491,7 @@ export default function App() {
                           checked={!!rel.total1}
                           onChange={(e) => handleToggleRelTotal(rel.id, 1, e.target.checked)}
                         />
-                        <span>Total Participation ({t1.name})</span>
+                        <span>Total Participation ({n1.name})</span>
                       </label>
                       <label className="flex items-center gap-1 cursor-pointer">
                         <input
@@ -1315,7 +1499,7 @@ export default function App() {
                           checked={!!rel.total2}
                           onChange={(e) => handleToggleRelTotal(rel.id, 2, e.target.checked)}
                         />
-                        <span>Total Participation ({t2.name})</span>
+                        <span>Total Participation ({n2.name})</span>
                       </label>
                     </div>
 
@@ -1435,19 +1619,12 @@ export default function App() {
           {/* SVG Layer for drawing relationship lines */}
           <svg id="svg-layer">
             {relationships.map(rel => {
-              const t1 = tables.find(t => t.id === rel.t1);
-              const t2 = tables.find(t => t.id === rel.t2);
-              if (!t1 || !t2) return null;
+              const n1 = getNodeDetails(rel.t1, tables, relationships);
+              const n2 = getNodeDetails(rel.t2, tables, relationships);
+              if (!n1 || !n2) return null;
 
-              const t1w = getTableWidth(t1);
-              const t2w = getTableWidth(t2);
-              const t1h = getTableHeight(t1);
-              const t2h = getTableHeight(t2);
-              const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
-              const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
-
-              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
-              const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+              const mx = rel.mx !== null ? rel.mx : (rel.t1 === rel.t2 ? n1.x + n1.w / 2 : (n1.cx + n2.cx) / 2);
+              const my = rel.my !== null ? rel.my : (rel.t1 === rel.t2 ? n1.y - 45 : (n1.cy + n2.cy) / 2);
               const m = { x: mx, y: my };
 
               const relW = getRelationshipWidth(rel.name);
@@ -1458,17 +1635,27 @@ export default function App() {
               let dia1: Point;
               let dia2: Point;
 
-              if (t1.id === t2.id) {
+              if (rel.t1 === rel.t2) {
                 // Self relationship connection points at top-left and top-right of table
-                edge1 = { x: t1.x + Math.min(60, t1w * 0.25), y: t1.y };
-                edge2 = { x: t1.x + t1w - Math.min(60, t1w * 0.25), y: t1.y };
+                edge1 = { x: n1.x + Math.min(60, n1.w * 0.25), y: n1.y };
+                edge2 = { x: n1.x + n1.w - Math.min(60, n1.w * 0.25), y: n1.y };
                 dia1 = getRhombusIntersection(m, edge1, relW, relH);
                 dia2 = getRhombusIntersection(m, edge2, relW, relH);
               } else {
-                edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: t1w, h: t1h }, m);
-                edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: t2w, h: t2h }, m);
-                dia1 = getRhombusIntersection(m, t1c, relW, relH);
-                dia2 = getRhombusIntersection(m, t2c, relW, relH);
+                if (n1.isTable) {
+                  edge1 = getRectIntersection({ x: n1.x, y: n1.y, w: n1.w, h: n1.h }, m);
+                } else {
+                  edge1 = getRhombusIntersection({ x: n1.cx, y: n1.cy }, m, n1.w, n1.h);
+                }
+
+                if (n2.isTable) {
+                  edge2 = getRectIntersection({ x: n2.x, y: n2.y, w: n2.w, h: n2.h }, m);
+                } else {
+                  edge2 = getRhombusIntersection({ x: n2.cx, y: n2.cy }, m, n2.w, n2.h);
+                }
+
+                dia1 = getRhombusIntersection(m, { x: n1.cx, y: n1.cy }, relW, relH);
+                dia2 = getRhombusIntersection(m, { x: n2.cx, y: n2.cy }, relW, relH);
               }
 
               // Determine segments to draw (double line if total participation is enabled)
@@ -1645,19 +1832,12 @@ export default function App() {
             ))}
 
             {relationships.map(rel => {
-              const t1 = tables.find(t => t.id === rel.t1);
-              const t2 = tables.find(t => t.id === rel.t2);
-              if (!t1 || !t2) return null;
+              const n1 = getNodeDetails(rel.t1, tables, relationships);
+              const n2 = getNodeDetails(rel.t2, tables, relationships);
+              if (!n1 || !n2) return null;
 
-              const t1w = getTableWidth(t1);
-              const t2w = getTableWidth(t2);
-              const t1h = getTableHeight(t1);
-              const t2h = getTableHeight(t2);
-              const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
-              const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
-
-              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
-              const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+              const mx = rel.mx !== null ? rel.mx : (rel.t1 === rel.t2 ? n1.x + n1.w / 2 : (n1.cx + n2.cx) / 2);
+              const my = rel.my !== null ? rel.my : (rel.t1 === rel.t2 ? n1.y - 45 : (n1.cy + n2.cy) / 2);
 
               const relW = getRelationshipWidth(rel.name);
               const relH = getRelationshipHeight(rel.name);
@@ -1704,8 +1884,8 @@ export default function App() {
                     <div className="rel-tooltip">
                       <div className="rel-tooltip-title">{rel.name}</div>
                       <div className="rel-tooltip-body">
-                        <strong>From:</strong> {t1.name}<br />
-                        <strong>To:</strong> {t2.name}<br />
+                        <strong>From:</strong> {n1.name}<br />
+                        <strong>To:</strong> {n2.name}<br />
                         <strong>Cardinality:</strong> {rel.cardinality}
                       </div>
                     </div>
