@@ -88,7 +88,7 @@ Create Relationships
 
 ---
 
-(sample)[./Example.png]
+[Sample](./Example.png)
 
 ---
 
