@@ -716,7 +716,7 @@ export default function App() {
   // --- EXPORT STATIC ERD ---
   const handleExportStatic = async () => {
     setIsExporting(true);
-    setToastMessage('Preparing high-quality ERD export...');
+    setToastMessage('Preparing high-resolution PNG export...');
 
     try {
       const canvasNode = document.getElementById('canvas');
@@ -785,331 +785,55 @@ export default function App() {
         });
       }
 
-      // Add generous padding to make it clean
+      // Add proper padding around the diagram
       const padding = 100;
       const targetWidth = (maxX - minX) + padding * 2;
       const targetHeight = (maxY - minY) + padding * 2;
       const shiftX = -minX + padding;
       const shiftY = -minY + padding;
 
-      // Render using html-to-image with pixelRatio = 2 for high quality
-      const dataUrl = await toPng(canvasNode, {
-        width: targetWidth,
-        height: targetHeight,
-        style: {
-          transform: `translate(${shiftX}px, ${shiftY}px) scale(1)`,
-          transformOrigin: 'top left',
-          width: `${targetWidth}px`,
-          height: `${targetHeight}px`,
-          background: '#09090b radial-gradient(#1e1e24 1px, transparent 1px)',
-          backgroundSize: '20px 20px',
-        },
-        pixelRatio: 2,
-        cacheBust: true,
-      });
+      // Save original transform style from DOM element
+      const originalTransform = canvasNode.style.transform;
 
-      // Simple, beautiful interactive HTML template
-      const htmlContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Exported ERD - StructView</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-        :root {
-            --bg-dark: #09090b;
-            --panel-dark: #0d0d10;
-            --border-color: #27272a;
-            --text-main: #f4f4f5;
-            --text-muted: #a1a1aa;
-            --accent-blue: #3b82f6;
-            --accent-blue-hover: #2563eb;
-            --font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body, html {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            background-color: var(--bg-dark);
-            color: var(--text-main);
-            font-family: var(--font-family);
-            overflow: hidden;
-        }
-        .viewer-header {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 64px;
-            background-color: rgba(13, 13, 16, 0.85);
-            backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 24px;
-            z-index: 100;
-        }
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 700;
-            font-size: 0.95rem;
-            letter-spacing: -0.025em;
-        }
-        .logo span.icon {
-            font-size: 1.2rem;
-        }
-        .logo span.badge {
-            font-size: 0.7rem;
-            background: rgba(59, 130, 246, 0.15);
-            color: var(--accent-blue);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-weight: 600;
-            border: 1px solid rgba(59, 130, 246, 0.25);
-        }
-        .controls {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        .btn {
-            background: #18181b;
-            color: var(--text-main);
-            border: 1px solid var(--border-color);
-            padding: 8px 14px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            font-weight: 500;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .btn:hover {
-            background: #27272a;
-            border-color: #3f3f46;
-        }
-        .btn-primary {
-            background: var(--accent-blue);
-            border-color: var(--accent-blue);
-            color: #ffffff;
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
-        }
-        .btn-primary:hover {
-            background: var(--accent-blue-hover);
-            border-color: var(--accent-blue-hover);
-        }
-        .viewport {
-            width: 100%;
-            height: 100%;
-            position: relative;
-            overflow: hidden;
-            cursor: grab;
-            background-color: var(--bg-dark);
-            background-image: radial-gradient(#1e1e24 1px, transparent 1px);
-            background-size: 20px 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .viewport:active {
-            cursor: grabbing;
-        }
-        .canvas-image {
-            position: absolute;
-            transform-origin: center center;
-            max-width: none;
-            user-select: none;
-            -webkit-user-drag: none;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-            border-radius: 12px;
-            border: 1px solid var(--border-color);
-            transition: transform 0.05s ease-out;
-        }
-        .zoom-indicator {
-            position: absolute;
-            bottom: 24px;
-            right: 24px;
-            background-color: rgba(13, 13, 16, 0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border-color);
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            font-family: monospace;
-            z-index: 90;
-            pointer-events: none;
-        }
-        .guide-hint {
-            position: absolute;
-            bottom: 24px;
-            left: 24px;
-            background-color: rgba(13, 13, 16, 0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border-color);
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            z-index: 90;
-            pointer-events: none;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .dot {
-            width: 6px;
-            height: 6px;
-            background-color: var(--accent-blue);
-            border-radius: 50%;
-            display: inline-block;
-        }
-    </style>
-</head>
-<body>
-    <div class="viewer-header">
-        <div class="logo">
-            <span class="icon">📊</span>
-            <span>StructView Static ERD</span>
-            <span class="badge">High-Res Export</span>
-        </div>
-        <div class="controls">
-            <button class="btn" id="btn-zoom-out" title="Zoom Out">➖ Zoom Out</button>
-            <button class="btn" id="btn-zoom-in" title="Zoom In">➕ Zoom In</button>
-            <button class="btn" id="btn-reset" title="Reset View">🔄 Reset</button>
-            <button class="btn btn-primary" id="btn-download" title="Download High-Res PNG">📥 Download PNG</button>
-        </div>
-    </div>
+      try {
+        // Temporarily translate the canvas to exactly position the bounding box at (padding, padding) with scale 1
+        canvasNode.style.transform = `translate(${shiftX}px, ${shiftY}px) scale(1)`;
 
-    <div class="viewport" id="viewport">
-        <img class="canvas-image" id="canvas-image" src="${dataUrl}" alt="Exported ERD" />
-    </div>
+        // Wait a tiny fraction of a second for any dynamic style overrides to take effect
+        await new Promise(resolve => setTimeout(resolve, 50));
 
-    <div class="zoom-indicator" id="zoom-indicator">100%</div>
-    <div class="guide-hint" id="guide-hint">
-        <span class="dot"></span>
-        <span>Drag to pan • Use mouse wheel to zoom</span>
-    </div>
-
-    <script>
-        const viewport = document.getElementById('viewport');
-        const img = document.getElementById('canvas-image');
-        const zoomInBtn = document.getElementById('btn-zoom-in');
-        const zoomOutBtn = document.getElementById('btn-zoom-out');
-        const resetBtn = document.getElementById('btn-reset');
-        const downloadBtn = document.getElementById('btn-download');
-        const zoomIndicator = document.getElementById('zoom-indicator');
-
-        let scale = 1;
-        let panX = 0;
-        let panY = 0;
-        let isDragging = false;
-        let startX = 0;
-        let startY = 0;
-
-        // Center image initially
-        function updateTransform() {
-            img.style.transform = \`translate(\${panX}px, \${panY}px) scale(\${scale})\`;
-            zoomIndicator.textContent = \`\${Math.round(scale * 100)}%\`;
-        }
-
-        // Drag and Pan
-        viewport.addEventListener('mousedown', (e) => {
-            if (e.target === downloadBtn || e.target.closest('.controls')) return;
-            isDragging = true;
-            startX = e.clientX - panX;
-            startY = e.clientY - panY;
+        // Directly capture and export a high-quality PNG image of the entire diagram
+        const dataUrl = await toPng(canvasNode, {
+          width: targetWidth,
+          height: targetHeight,
+          style: {
+            transform: `translate(${shiftX}px, ${shiftY}px) scale(1)`,
+            transformOrigin: 'top left',
+            width: `${targetWidth}px`,
+            height: `${targetHeight}px`,
+            background: '#09090b radial-gradient(#1e1e24 1px, transparent 1px)',
+            backgroundSize: '20px 20px',
+          },
+          pixelRatio: 2, // High-resolution export (Retina scale)
+          cacheBust: true,
         });
 
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            panX = e.clientX - startX;
-            panY = e.clientY - startY;
-            updateTransform();
-        });
+        // Trigger file download directly as a .png
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `ERD_Export_${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
 
-        window.addEventListener('mouseup', () => {
-            isDragging = false;
-        });
-
-        // Zoom via Wheel
-        viewport.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const zoomFactor = 0.08;
-            const oldScale = scale;
-            if (e.deltaY < 0) {
-                scale = Math.min(scale + zoomFactor, 4);
-            } else {
-                scale = Math.max(scale - zoomFactor, 0.15);
-            }
-            
-            // Adjust pan to zoom towards mouse position
-            const rect = img.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left - rect.width / 2;
-            const mouseY = e.clientY - rect.top - rect.height / 2;
-            
-            panX -= mouseX * (scale / oldScale - 1);
-            panY -= mouseY * (scale / oldScale - 1);
-
-            updateTransform();
-        }, { passive: false });
-
-        // Button controls
-        zoomInBtn.addEventListener('click', () => {
-            scale = Math.min(scale + 0.15, 4);
-            updateTransform();
-        });
-
-        zoomOutBtn.addEventListener('click', () => {
-            scale = Math.max(scale - 0.15, 0.15);
-            updateTransform();
-        });
-
-        resetBtn.addEventListener('click', () => {
-            scale = 1;
-            panX = 0;
-            panY = 0;
-            updateTransform();
-        });
-
-        // Download PNG
-        downloadBtn.addEventListener('click', () => {
-            const link = document.createElement('a');
-            link.href = img.src;
-            link.download = \`ERD_Export_\${Date.now()}.png\`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        });
-
-        // Initialize
-        updateTransform();
-    </script>
-</body>
-</html>`;
-
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ERD_Export_${Date.now()}.html`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setToastMessage('High-resolution ERD exported successfully!');
+        setToastMessage('High-resolution PNG exported successfully!');
+      } finally {
+        // Always restore original pan and zoom transform instantly
+        canvasNode.style.transform = originalTransform;
+      }
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to export ERD as image. Try again.');
+      alert('Failed to export ERD as PNG. Try again.');
     } finally {
       setIsExporting(false);
     }
