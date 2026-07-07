@@ -24,4 +24,7 @@ export interface Relationship {
   cardinality: string;
   mx: number | null; // Dragged diamond x position
   my: number | null; // Dragged diamond y position
+  attributes?: Attribute[];
+  total1?: boolean;
+  total2?: boolean;
 }

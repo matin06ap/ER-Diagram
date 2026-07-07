@@ -1,6 +1,82 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Table, Relationship, Attribute } from './types';
 
+// Helper functions for shape layout and line connection math
+function getTableHeight(table: Table): number {
+  const visibleAttrs = table.attributes.filter(attr => !attr.fk).length;
+  if (visibleAttrs === 0) return 40; // only header
+  return 40 + (visibleAttrs * 26) + 20; // 40 header + attrs * 26 + 20 padding
+}
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+function getRectIntersection(rect: { x: number, y: number, w: number, h: number }, target: Point): Point {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  
+  const dx = target.x - cx;
+  const dy = target.y - cy;
+  
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  
+  const slope = dy / dx;
+  const rectSlope = rect.h / rect.w;
+  
+  let ix = cx;
+  let iy = cy;
+  
+  if (Math.abs(slope) <= rectSlope) {
+    // Intersects left or right boundary
+    if (dx > 0) {
+      ix = rect.x + rect.w;
+      iy = cy + (rect.w / 2) * slope;
+    } else {
+      ix = rect.x;
+      iy = cy - (rect.w / 2) * slope;
+    }
+  } else {
+    // Intersects top or bottom boundary
+    if (dy > 0) {
+      iy = rect.y + rect.h;
+      ix = cx + (rect.h / 2) / slope;
+    } else {
+      iy = rect.y;
+      ix = cy - (rect.h / 2) / slope;
+    }
+  }
+  
+  return { x: ix, y: iy };
+}
+
+function getCircleIntersection(center: Point, r: number, target: Point): Point {
+  const dx = target.x - center.x;
+  const dy = target.y - center.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist === 0) return center;
+  return {
+    x: center.x + (dx / dist) * r,
+    y: center.y + (dy / dist) * r,
+  };
+}
+
+function getParallelSegment(x1: number, y1: number, x2: number, y2: number, offset: number) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return { x1, y1, x2, y2 };
+  const px = -dy / len;
+  const py = dx / len;
+  return {
+    x1: x1 + px * offset,
+    y1: y1 + py * offset,
+    x2: x2 + px * offset,
+    y2: y2 + py * offset,
+  };
+}
+
 // Default example data generators
 function getExampleTables(): Table[] {
   return [
@@ -39,6 +115,11 @@ function getExampleRelationships(): Relationship[] {
       cardinality: '1:N',
       mx: null,
       my: null,
+      attributes: [
+        { id: 'attr_rel_1', name: 'StartDate', type: '', pk: false, fk: false, nullable: true, unique: false }
+      ],
+      total1: false,
+      total2: false,
     }
   ];
 }
@@ -371,6 +452,63 @@ export default function App() {
     setRelationships(prev => prev.filter(r => r.id !== relId));
   };
 
+  const handleToggleRelTotal = (relId: string, side: 1 | 2, checked: boolean) => {
+    setRelationships(prev => prev.map(r => {
+      if (r.id === relId) {
+        return side === 1 ? { ...r, total1: checked } : { ...r, total2: checked };
+      }
+      return r;
+    }));
+  };
+
+  const handleAddNewRelAttribute = (relId: string) => {
+    setRelationships(prev => prev.map(r => {
+      if (r.id === relId) {
+        const newAttr: Attribute = {
+          id: 'attr_' + Date.now() + Math.random().toString(36).substr(2, 5),
+          name: 'NewAttr',
+          type: '',
+          pk: false,
+          fk: false,
+          nullable: true,
+          unique: false,
+        };
+        const currentAttrs = r.attributes || [];
+        return {
+          ...r,
+          attributes: [...currentAttrs, newAttr],
+        };
+      }
+      return r;
+    }));
+  };
+
+  const handleUpdateRelAttribute = (relId: string, attrId: string, value: string) => {
+    setRelationships(prev => prev.map(r => {
+      if (r.id === relId) {
+        const currentAttrs = r.attributes || [];
+        return {
+          ...r,
+          attributes: currentAttrs.map(a => a.id === attrId ? { ...a, name: value } : a)
+        };
+      }
+      return r;
+    }));
+  };
+
+  const handleDeleteRelAttribute = (relId: string, attrId: string) => {
+    setRelationships(prev => prev.map(r => {
+      if (r.id === relId) {
+        const currentAttrs = r.attributes || [];
+        return {
+          ...r,
+          attributes: currentAttrs.filter(a => a.id !== attrId)
+        };
+      }
+      return r;
+    }));
+  };
+
   const handleCloseGuidePermanently = () => {
     // CHANGED: Permanently hides the guide element
     setGuideHidden(true);
@@ -379,39 +517,83 @@ export default function App() {
 
   // --- EXPORT STATIC ERD ---
   const handleExportStatic = () => {
-    // CHANGED: Export output keeps the exact structure but omits left panel, right panel, and edit UI
+    // Export output keeps the exact structure but omits left panel, right panel, and edit UI
     const polylinesHtml = relationships.map(rel => {
       const t1 = tables.find(t => t.id === rel.t1);
       const t2 = tables.find(t => t.id === rel.t2);
       if (!t1 || !t2) return '';
 
-      let x1 = t1.x + 110;
-      let y1 = t1.y + 20;
-      let x2 = t2.x + 110;
-      let y2 = t2.y + 20;
+      const t1h = getTableHeight(t1);
+      const t2h = getTableHeight(t2);
+      const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
+      const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
 
-      // CHANGED: Draw curved self-loops for self-relationships
+      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+      const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+      const m = { x: mx, y: my };
+
+      let edge1: Point;
+      let edge2: Point;
+      let dia1: Point;
+      let dia2: Point;
+
       if (t1.id === t2.id) {
-        x1 = t1.x + 50;
-        x2 = t1.x + 170;
+        edge1 = { x: t1.x + 50, y: t1.y };
+        edge2 = { x: t1.x + 170, y: t1.y };
+        dia1 = getCircleIntersection(m, 22, edge1);
+        dia2 = getCircleIntersection(m, 22, edge2);
+      } else {
+        edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: 220, h: t1h }, m);
+        edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: 220, h: t2h }, m);
+        dia1 = getCircleIntersection(m, 22, t1c);
+        dia2 = getCircleIntersection(m, 22, t2c);
       }
 
-      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
-      const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
+      // Determine segments to draw (double line if total participation is enabled)
+      const line1Segments = rel.total1 ? [
+        getParallelSegment(edge1.x, edge1.y, dia1.x, dia1.y, -2.5),
+        getParallelSegment(edge1.x, edge1.y, dia1.x, dia1.y, 2.5),
+      ] : [
+        { x1: edge1.x, y1: edge1.y, x2: dia1.x, y2: dia1.y }
+      ];
+
+      const line2Segments = rel.total2 ? [
+        getParallelSegment(edge2.x, edge2.y, dia2.x, dia2.y, -2.5),
+        getParallelSegment(edge2.x, edge2.y, dia2.x, dia2.y, 2.5),
+      ] : [
+        { x1: edge2.x, y1: edge2.y, x2: dia2.x, y2: dia2.y }
+      ];
 
       // Parse cardinality
       const cardParts = rel.cardinality.split(':');
       const c1 = cardParts[0] || '1';
       const c2 = cardParts[1] || 'N';
 
-      // Positions for cardinality labels
-      const label1X = x1 + (mx - x1) * 0.35;
-      const label1Y = y1 + (my - y1) * 0.35;
-      const label2X = x2 + (mx - x2) * 0.35;
-      const label2Y = y2 + (my - y2) * 0.35;
+      const label1X = edge1.x + (dia1.x - edge1.x) * 0.35;
+      const label1Y = edge1.y + (dia1.y - edge1.y) * 0.35;
+      const label2X = edge2.x + (dia2.x - edge2.x) * 0.35;
+      const label2Y = edge2.y + (dia2.y - edge2.y) * 0.35;
+
+      const hasAttrs = rel.attributes && rel.attributes.length > 0;
+      const attrBoxX = mx + 60;
+      const attrBoxY = my - 40;
+
+      const lines1Html = line1Segments.map(seg => `
+        <line x1="${seg.x1}" y1="${seg.y1}" x2="${seg.x2}" y2="${seg.y2}" class="rel-line"></line>
+      `).join('\n');
+
+      const lines2Html = line2Segments.map(seg => `
+        <line x1="${seg.x1}" y1="${seg.y1}" x2="${seg.x2}" y2="${seg.y2}" class="rel-line"></line>
+      `).join('\n');
+
+      const dashedConnectorHtml = hasAttrs ? `
+        <line x1="${mx}" y1="${my}" x2="${attrBoxX}" y2="${attrBoxY + 12}" stroke="#6366f1" stroke-dasharray="4,4" stroke-width="1.5"></line>
+      ` : '';
 
       return `
-        <polyline id="line_${rel.id}" points="${x1},${y1} ${mx},${my} ${x2},${y2}" class="rel-line"></polyline>
+        ${dashedConnectorHtml}
+        ${lines1Html}
+        ${lines2Html}
         <text x="${label1X}" y="${label1Y}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c1}</text>
         <text x="${label2X}" y="${label2Y}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c2}</text>
       `;
@@ -452,18 +634,31 @@ export default function App() {
       const t2 = tables.find(t => t.id === rel.t2);
       if (!t1 || !t2) return '';
 
-      let x1 = t1.x + 110;
-      let y1 = t1.y + 20;
-      let x2 = t2.x + 110;
-      let y2 = t2.y + 20;
+      const t1h = getTableHeight(t1);
+      const t2h = getTableHeight(t2);
+      const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
+      const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
 
-      if (t1.id === t2.id) {
-        x1 = t1.x + 50;
-        x2 = t1.x + 170;
+      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+      const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+
+      const hasAttrs = rel.attributes && rel.attributes.length > 0;
+      let attrsBoxHtml = '';
+      if (hasAttrs) {
+        const itemsHtml = (rel.attributes || []).map(attr => `
+          <div class="rel-attr-item">
+            <span class="rel-attr-bullet">○</span>
+            <span>${attr.name}</span>
+          </div>
+        `).join('\n');
+
+        attrsBoxHtml = `
+          <div class="rel-attr-box" style="left: ${mx + 60}px; top: ${my - 40}px;">
+            <div class="rel-attr-title">Attributes</div>
+            ${itemsHtml}
+          </div>
+        `;
       }
-
-      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
-      const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
 
       return `
         <div class="rel-node" id="rel_node_${rel.id}" style="left: ${mx}px; top: ${my}px; cursor: help;">
@@ -478,6 +673,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        ${attrsBoxHtml}
       `;
     }).join('\n');
 
@@ -530,6 +726,10 @@ export default function App() {
         .rel-tooltip-body { color: var(--text-muted); font-size: 0.85rem; line-height: 1.4; }
         .rel-tooltip-body strong { color: var(--text-main); }
         .rel-line { stroke: var(--accent-purple); stroke-width: 2.5; fill: none; stroke-linejoin: round; }
+        .rel-attr-box { position: absolute; background: #111111; border: 1.5px dashed var(--accent-purple); border-radius: 6px; padding: 6px 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none; z-index: 45; display: flex; flex-direction: column; gap: 4px; min-width: 90px; }
+        .rel-attr-title { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em; border-bottom: 1px solid #222222; padding-bottom: 2px; margin-bottom: 2px; }
+        .rel-attr-item { font-size: 0.75rem; color: var(--text-main); font-family: monospace; display: flex; align-items: center; gap: 4px; }
+        .rel-attr-bullet { color: var(--accent-purple); }
         .icon.pk { color: var(--color-pk); }
         .icon.fk { color: var(--color-fk); }
         .icon.unique { color: var(--color-unique); }
@@ -753,7 +953,62 @@ export default function App() {
                     </span>
                     <button className="btn btn-sm btn-danger" onClick={() => handleDeleteRelationship(rel.id)}>X</button>
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Name: {rel.name}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Name: {rel.name}</div>
+
+                  {/* Participation Toggles */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', marginBottom: '8px' }}>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!rel.total1}
+                        onChange={(e) => handleToggleRelTotal(rel.id, 1, e.target.checked)}
+                      />
+                      <span>Total Participation ({t1.name})</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!rel.total2}
+                        onChange={(e) => handleToggleRelTotal(rel.id, 2, e.target.checked)}
+                      />
+                      <span>Total Participation ({t2.name})</span>
+                    </label>
+                  </div>
+
+                  {/* Relationship Attributes Management */}
+                  <div style={{ borderTop: '1px solid #222', paddingTop: '6px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-main)' }}>Attributes</span>
+                      <button
+                        className="btn btn-sm"
+                        style={{ padding: '2px 6px', fontSize: '10px' }}
+                        onClick={() => handleAddNewRelAttribute(rel.id)}
+                      >
+                        + Add Attr
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {(rel.attributes || []).map(attr => (
+                        <div key={attr.id} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            className="input-field"
+                            style={{ margin: 0, padding: '2px 4px', fontSize: '11px', flex: 1 }}
+                            value={attr.name}
+                            placeholder="Attr Name"
+                            onChange={(e) => handleUpdateRelAttribute(rel.id, attr.id, e.target.value)}
+                          />
+                          <button
+                            className="btn btn-sm btn-danger"
+                            style={{ padding: '2px 6px', fontSize: '10px' }}
+                            onClick={() => handleDeleteRelAttribute(rel.id, attr.id)}
+                          >
+                            X
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -793,38 +1048,102 @@ export default function App() {
               const t2 = tables.find(t => t.id === rel.t2);
               if (!t1 || !t2) return null;
 
-              let x1 = t1.x + 110;
-              let y1 = t1.y + 20;
-              let x2 = t2.x + 110;
-              let y2 = t2.y + 20;
+              const t1h = getTableHeight(t1);
+              const t2h = getTableHeight(t2);
+              const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
+              const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
 
-              // CHANGED: Draw self-loop coordinates for self-relationship
+              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+              const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+              const m = { x: mx, y: my };
+
+              let edge1: Point;
+              let edge2: Point;
+              let dia1: Point;
+              let dia2: Point;
+
               if (t1.id === t2.id) {
-                x1 = t1.x + 50;
-                x2 = t1.x + 170;
+                // Self relationship connection points at top-left and top-right of table
+                edge1 = { x: t1.x + 50, y: t1.y };
+                edge2 = { x: t1.x + 170, y: t1.y };
+                dia1 = getCircleIntersection(m, 22, edge1);
+                dia2 = getCircleIntersection(m, 22, edge2);
+              } else {
+                edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: 220, h: t1h }, m);
+                edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: 220, h: t2h }, m);
+                dia1 = getCircleIntersection(m, 22, t1c);
+                dia2 = getCircleIntersection(m, 22, t2c);
               }
 
-              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
-              const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
+              // Determine segments to draw (double line if total participation is enabled)
+              const line1Segments = rel.total1 ? [
+                getParallelSegment(edge1.x, edge1.y, dia1.x, dia1.y, -2.5),
+                getParallelSegment(edge1.x, edge1.y, dia1.x, dia1.y, 2.5),
+              ] : [
+                { x1: edge1.x, y1: edge1.y, x2: dia1.x, y2: dia1.y }
+              ];
+
+              const line2Segments = rel.total2 ? [
+                getParallelSegment(edge2.x, edge2.y, dia2.x, dia2.y, -2.5),
+                getParallelSegment(edge2.x, edge2.y, dia2.x, dia2.y, 2.5),
+              ] : [
+                { x1: edge2.x, y1: edge2.y, x2: dia2.x, y2: dia2.y }
+              ];
 
               // Parse cardinality
               const cardParts = rel.cardinality.split(':');
               const c1 = cardParts[0] || '1';
               const c2 = cardParts[1] || 'N';
 
-              // Positions for cardinality labels
-              const label1X = x1 + (mx - x1) * 0.35;
-              const label1Y = y1 + (my - y1) * 0.35;
-              const label2X = x2 + (mx - x2) * 0.35;
-              const label2Y = y2 + (my - y2) * 0.35;
+              // Positions for cardinality labels (35% along the segment from the entity boundary to the diamond)
+              const label1X = edge1.x + (dia1.x - edge1.x) * 0.35;
+              const label1Y = edge1.y + (dia1.y - edge1.y) * 0.35;
+              const label2X = edge2.x + (dia2.x - edge2.x) * 0.35;
+              const label2Y = edge2.y + (dia2.y - edge2.y) * 0.35;
+
+              const hasAttrs = rel.attributes && rel.attributes.length > 0;
+              const attrBoxX = mx + 60;
+              const attrBoxY = my - 40;
 
               return (
                 <g key={rel.id}>
-                  <polyline
-                    id={`line_${rel.id}`}
-                    points={`${x1},${y1} ${mx},${my} ${x2},${y2}`}
-                    className="rel-line"
-                  />
+                  {/* Dashed connector to relationship attributes box */}
+                  {hasAttrs && (
+                    <line
+                      x1={mx}
+                      y1={my}
+                      x2={attrBoxX}
+                      y2={attrBoxY + 12}
+                      stroke="#6366f1"
+                      strokeDasharray="4,4"
+                      strokeWidth="1.5"
+                    />
+                  )}
+
+                  {/* Table 1 to Relationship Diamond line(s) */}
+                  {line1Segments.map((seg, i) => (
+                    <line
+                      key={`l1_${i}`}
+                      x1={seg.x1}
+                      y1={seg.y1}
+                      x2={seg.x2}
+                      y2={seg.y2}
+                      className="rel-line"
+                    />
+                  ))}
+
+                  {/* Table 2 to Relationship Diamond line(s) */}
+                  {line2Segments.map((seg, i) => (
+                    <line
+                      key={`l2_${i}`}
+                      x1={seg.x1}
+                      y1={seg.y1}
+                      x2={seg.x2}
+                      y2={seg.y2}
+                      className="rel-line"
+                    />
+                  ))}
+
                   {/* Cardinality 1 Label */}
                   <text
                     x={label1X}
@@ -930,29 +1249,51 @@ export default function App() {
               const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
               const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
 
+              const hasAttrs = rel.attributes && rel.attributes.length > 0;
+
               return (
-                <div
-                  className={`rel-node ${draggedRelId === rel.id ? 'dragging' : ''}`}
-                  id={`rel_node_${rel.id}`}
-                  key={rel.id}
-                  style={{
-                    left: `${mx}px`,
-                    top: `${my}px`,
-                    zIndex: draggedRelId === rel.id ? 110 : 50,
-                  }}
-                  onMouseDown={(e) => handleRelMouseDown(e, rel.id)}
-                >
-                  <div className="rel-diamond-shape"></div>
-                  <div className="rel-text-label">{rel.name.substring(0, 5)}</div>
-                  <div className="rel-tooltip">
-                    <div className="rel-tooltip-title">{rel.name}</div>
-                    <div className="rel-tooltip-body">
-                      <strong>From:</strong> {t1.name}<br />
-                      <strong>To:</strong> {t2.name}<br />
-                      <strong>Cardinality:</strong> {rel.cardinality}
+                <React.Fragment key={rel.id}>
+                  <div
+                    className={`rel-node ${draggedRelId === rel.id ? 'dragging' : ''}`}
+                    id={`rel_node_${rel.id}`}
+                    style={{
+                      left: `${mx}px`,
+                      top: `${my}px`,
+                      zIndex: draggedRelId === rel.id ? 110 : 50,
+                    }}
+                    onMouseDown={(e) => handleRelMouseDown(e, rel.id)}
+                  >
+                    <div className="rel-diamond-shape"></div>
+                    <div className="rel-text-label">{rel.name.substring(0, 5)}</div>
+                    <div className="rel-tooltip">
+                      <div className="rel-tooltip-title">{rel.name}</div>
+                      <div className="rel-tooltip-body">
+                        <strong>From:</strong> {t1.name}<br />
+                        <strong>To:</strong> {t2.name}<br />
+                        <strong>Cardinality:</strong> {rel.cardinality}
+                      </div>
                     </div>
                   </div>
-                </div>
+
+                  {/* Relationship Attribute Box */}
+                  {hasAttrs && (
+                    <div
+                      className="rel-attr-box"
+                      style={{
+                        left: `${mx + 60}px`,
+                        top: `${my - 40}px`,
+                      }}
+                    >
+                      <div className="rel-attr-title">Attributes</div>
+                      {rel.attributes?.map(attr => (
+                        <div key={attr.id} className="rel-attr-item">
+                          <span className="rel-attr-bullet">○</span>
+                          <span>{attr.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </React.Fragment>
               );
             })}
           </div>
@@ -984,6 +1325,8 @@ export default function App() {
             <p>• <strong>Drag</strong> table headers to position them.</p>
             <p>• <strong>Drag</strong> relationship diamonds to reroute lines.</p>
             <p>• <strong>Hover</strong> tables to highlight their connections.</p>
+            <p>• <strong>Total Participation</strong> renders double lines via the sidebar checkbox.</p>
+            <p>• <strong>Relationship Attributes</strong> can be added in the sidebar to float by the diamond.</p>
           </div>
 
           <div className="border-t border-[#262626] pt-2">
@@ -993,6 +1336,8 @@ export default function App() {
               <li className="flex items-center gap-2"><span className="text-[#b794f4]">⭐</span> Unique</li>
               <li className="flex items-center gap-2"><span className="text-[#718096]">○</span> Nullable</li>
               <li className="flex items-center gap-2"><span className="text-[#6366f1]">◇</span> Relationship</li>
+              <li className="flex items-center gap-2"><span className="text-gray-400 font-mono text-[9px]">══</span> Total Participation (Double Line)</li>
+              <li className="flex items-center gap-2"><span className="text-gray-400 font-mono text-[9px]">- -</span> Relationship Attribute Connector</li>
             </ul>
           </div>
         </div>

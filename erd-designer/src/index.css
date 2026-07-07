@@ -354,3 +354,41 @@ body {
     from { opacity: 0; transform: translateY(5px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* --- Relationship Attribute Box --- */
+.rel-attr-box {
+    position: absolute;
+    background: #111111;
+    border: 1.5px dashed var(--accent-purple);
+    border-radius: 6px;
+    padding: 6px 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    pointer-events: none;
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 90px;
+}
+.rel-attr-title {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #222222;
+    padding-bottom: 2px;
+    margin-bottom: 2px;
+}
+.rel-attr-item {
+    font-size: 0.75rem;
+    color: var(--text-main);
+    font-family: monospace;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.rel-attr-bullet {
+    color: var(--accent-purple);
+}
+
