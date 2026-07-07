@@ -51,14 +51,14 @@ export function getTableHeight(table: Table): number {
   visibleAttrs.forEach(attr => {
     const attrCharFit = Math.max(1, (w - 69) / 8);
     const attrLines = Math.ceil(attr.name.length / attrCharFit);
-    const attrRowHeight = 26 + Math.max(0, attrLines - 1) * 16;
+    const attrRowHeight = 34 + Math.max(0, attrLines - 1) * 18;
     attrsHeight += attrRowHeight;
   });
   
   if (visibleAttrs.length === 0) {
-    return headerHeight + 20;
+    return headerHeight + 24;
   }
-  return headerHeight + 20 + attrsHeight;
+  return headerHeight + 24 + attrsHeight;
 }
 
 export function getRelationshipWidth(name: string): number {
