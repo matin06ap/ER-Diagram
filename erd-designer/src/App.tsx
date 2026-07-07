@@ -329,6 +329,27 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
+  const [selectionBox, setSelectionBox] = useState<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    isDrawing: boolean;
+    hasSelection: boolean;
+  } | null>(null);
+
+  // Cancel selection mode with Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isSelectionMode) {
+        setIsSelectionMode(false);
+        setSelectionBox(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSelectionMode]);
 
   useEffect(() => {
     if (toastMessage) {
@@ -715,125 +736,289 @@ export default function App() {
 
   // --- EXPORT STATIC ERD ---
   const handleExportStatic = async () => {
+    if (tables.length === 0 && relationships.length === 0) {
+      alert("Nothing to export! Create some tables or connections first.");
+      return;
+    }
+
     setIsExporting(true);
     setToastMessage('Preparing high-resolution PNG export...');
 
     try {
-      const canvasNode = document.getElementById('canvas');
-      if (!canvasNode) {
-        alert("Canvas element not found.");
+      const viewportNode = document.getElementById('canvas-viewport');
+      if (!viewportNode) {
+        alert("Viewport element not found.");
         setIsExporting(false);
         return;
       }
 
-      // Calculate diagram bounding box dynamically to prevent any cropping/clipping
+      // 1. Calculate diagram bounding box dynamically in canvas coordinates
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -Infinity;
       let maxY = -Infinity;
 
-      if (tables.length === 0 && relationships.length === 0) {
-        minX = 100;
-        minY = 100;
-        maxX = 800;
-        maxY = 600;
-      } else {
-        // Calculate boundaries from tables
-        tables.forEach(table => {
-          const tableH = getTableHeight(table);
-          const w = getTableWidth(table); // Table cards have dynamic width
-          minX = Math.min(minX, table.x);
-          maxX = Math.max(maxX, table.x + w);
-          minY = Math.min(minY, table.y);
-          maxY = Math.max(maxY, table.y + tableH);
-        });
+      // Calculate boundaries from tables
+      tables.forEach(table => {
+        const tableH = getTableHeight(table);
+        const w = getTableWidth(table); // Table cards have dynamic width
+        minX = Math.min(minX, table.x);
+        maxX = Math.max(maxX, table.x + w);
+        minY = Math.min(minY, table.y);
+        maxY = Math.max(maxY, table.y + tableH);
+      });
 
-        // Calculate boundaries from relationships and attribute boxes
-        relationships.forEach(rel => {
-          const t1 = tables.find(t => t.id === rel.t1);
-          const t2 = tables.find(t => t.id === rel.t2);
-          if (t1 && t2) {
-            const t1w = getTableWidth(t1);
-            const t1h = getTableHeight(t1);
-            const t2w = getTableWidth(t2);
-            const t2h = getTableHeight(t2);
-            const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
-            const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
-            const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
-            const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+      // Calculate boundaries from relationships and attribute boxes
+      relationships.forEach(rel => {
+        const t1 = tables.find(t => t.id === rel.t1);
+        const t2 = tables.find(t => t.id === rel.t2);
+        if (t1 && t2) {
+          const t1w = getTableWidth(t1);
+          const t1h = getTableHeight(t1);
+          const t2w = getTableWidth(t2);
+          const t2h = getTableHeight(t2);
+          const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
+          const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
+          const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
+          const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
 
-            const relW = getRelationshipWidth(rel.name);
-            const relH = getRelationshipHeight(rel.name);
+          const relW = getRelationshipWidth(rel.name);
+          const relH = getRelationshipHeight(rel.name);
 
-            minX = Math.min(minX, mx - relW / 2);
-            maxX = Math.max(maxX, mx + relW / 2);
-            minY = Math.min(minY, my - relH / 2);
-            maxY = Math.max(maxY, my + relH / 2);
+          minX = Math.min(minX, mx - relW / 2);
+          maxX = Math.max(maxX, mx + relW / 2);
+          minY = Math.min(minY, my - relH / 2);
+          maxY = Math.max(maxY, my + relH / 2);
 
-            const hasAttrs = rel.attributes && rel.attributes.length > 0;
-            if (hasAttrs) {
-              const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
-              const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
-              const relAttrWidth = getRelAttrBoxWidth(rel);
-              const relAttrHeight = getRelAttrBoxHeight(rel);
-              minX = Math.min(minX, ax);
-              maxX = Math.max(maxX, ax + relAttrWidth);
-              minY = Math.min(minY, ay);
-              maxY = Math.max(maxY, ay + relAttrHeight);
-            }
+          const hasAttrs = rel.attributes && rel.attributes.length > 0;
+          if (hasAttrs) {
+            const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+            const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
+            const relAttrWidth = getRelAttrBoxWidth(rel);
+            const relAttrHeight = getRelAttrBoxHeight(rel);
+            minX = Math.min(minX, ax);
+            maxX = Math.max(maxX, ax + relAttrWidth);
+            minY = Math.min(minY, ay);
+            maxY = Math.max(maxY, ay + relAttrHeight);
           }
-        });
-      }
+        }
+      });
 
-      // Add proper padding around the diagram
-      const padding = 100;
-      const targetWidth = (maxX - minX) + padding * 2;
-      const targetHeight = (maxY - minY) + padding * 2;
-      const shiftX = -minX + padding;
-      const shiftY = -minY + padding;
+      // 2. Fetch viewport size
+      const rect = viewportNode.getBoundingClientRect();
+      const viewportWidth = rect.width;
+      const viewportHeight = rect.height;
 
-      // Save original transform style from DOM element
-      const originalTransform = canvasNode.style.transform;
+      // Add a generous 80px padding around the entire diagram
+      const padding = 80;
+      const diagramWidth = maxX - minX;
+      const diagramHeight = maxY - minY;
+      const paddedWidth = diagramWidth + padding * 2;
+      const paddedHeight = diagramHeight + padding * 2;
 
-      try {
-        // Temporarily translate the canvas to exactly position the bounding box at (padding, padding) with scale 1
-        canvasNode.style.transform = `translate(${shiftX}px, ${shiftY}px) scale(1)`;
+      // 3. Compute scale and pan required to fit the entire padded diagram into the viewport
+      const fitScaleX = viewportWidth / paddedWidth;
+      const fitScaleY = viewportHeight / paddedHeight;
+      const fitScale = Math.min(fitScaleX, fitScaleY, 1.5); // cap at 1.5 zoom to prevent oversized graphics
 
-        // Wait a tiny fraction of a second for any dynamic style overrides to take effect
-        await new Promise(resolve => setTimeout(resolve, 50));
+      const diagramCenterX = minX + diagramWidth / 2;
+      const diagramCenterY = minY + diagramHeight / 2;
+      const viewportCenterX = viewportWidth / 2;
+      const viewportCenterY = viewportHeight / 2;
 
-        // Directly capture and export a high-quality PNG image of the entire diagram
-        const dataUrl = await toPng(canvasNode, {
-          width: targetWidth,
-          height: targetHeight,
-          style: {
-            transform: `translate(${shiftX}px, ${shiftY}px) scale(1)`,
-            transformOrigin: 'top left',
-            width: `${targetWidth}px`,
-            height: `${targetHeight}px`,
-            background: '#09090b radial-gradient(#1e1e24 1px, transparent 1px)',
-            backgroundSize: '20px 20px',
-          },
-          pixelRatio: 2, // High-resolution export (Retina scale)
-          cacheBust: true,
-        });
+      const tempPanX = viewportCenterX - diagramCenterX * fitScale;
+      const tempPanY = viewportCenterY - diagramCenterY * fitScale;
 
-        // Trigger file download directly as a .png
-        const link = document.createElement('a');
-        link.href = dataUrl;
-        link.download = `ERD_Export_${Date.now()}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+      // 4. Save user's current zoom/pan state
+      const originalScale = scale;
+      const originalPanX = panX;
+      const originalPanY = panY;
 
-        setToastMessage('High-resolution PNG exported successfully!');
-      } finally {
-        // Always restore original pan and zoom transform instantly
-        canvasNode.style.transform = originalTransform;
-      }
+      // 5. Temporarily apply fitted zoom/pan state to reveal everything in the viewport
+      setScale(fitScale);
+      setPanX(tempPanX);
+      setPanY(tempPanY);
+
+      // 6. Wait 180ms for React state state-updates to finish and the browser to render
+      await new Promise(resolve => setTimeout(resolve, 180));
+
+      // Calculate exact bounding coordinates in viewport screen space
+      const sx = (minX - padding) * fitScale + tempPanX;
+      const sy = (minY - padding) * fitScale + tempPanY;
+      const sw = paddedWidth * fitScale;
+      const sh = paddedHeight * fitScale;
+
+      const pixelRatio = 2; // Export at 2x high resolution (Retina level)
+
+      // 7. Capture the whole viewport
+      const dataUrl = await toPng(viewportNode, {
+        pixelRatio,
+        cacheBust: true,
+        style: {
+          // Cascade direct colors to make sure nested stylesheets / variables resolve perfectly
+          '--bg-dark': '#09090b',
+          '--panel-dark': '#0d0d10',
+          '--border-color': '#27272a',
+          '--accent-blue': '#3b82f6',
+          '--accent-blue-hover': '#2563eb',
+          '--accent-purple': '#6366f1',
+          '--text-main': '#f4f4f5',
+          '--text-muted': '#a1a1aa',
+          '--card-bg': '#141417',
+          '--color-pk': '#fbbf24',
+          '--color-fk': '#2dd4bf',
+          '--color-unique': '#c084fc',
+          '--color-nullable': '#94a3b8',
+        } as any
+      });
+
+      // 8. Restore user's zoom/pan state immediately
+      setScale(originalScale);
+      setPanX(originalPanX);
+      setPanY(originalPanY);
+
+      // 9. Load full viewport image into canvas and crop to target diagram bounds
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = dataUrl;
+      img.onload = () => {
+        const offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas.width = sw * pixelRatio;
+        offscreenCanvas.height = sh * pixelRatio;
+
+        const ctx = offscreenCanvas.getContext('2d');
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+
+          // Crop out only the padded diagram bounding box
+          ctx.drawImage(
+            img,
+            sx * pixelRatio,
+            sy * pixelRatio,
+            sw * pixelRatio,
+            sh * pixelRatio,
+            0,
+            0,
+            sw * pixelRatio,
+            sh * pixelRatio
+          );
+
+          // Get final high-quality .png data url
+          const croppedDataUrl = offscreenCanvas.toDataURL('image/png', 1.0);
+
+          // Download downloadable .png
+          const link = document.createElement('a');
+          link.href = croppedDataUrl;
+          link.download = `ERD_Full_Export_${Date.now()}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          setToastMessage('High-resolution PNG exported successfully!');
+        } else {
+          throw new Error("Canvas context is null");
+        }
+      };
     } catch (error) {
       console.error('Export failed:', error);
       alert('Failed to export ERD as PNG. Try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // --- CAPTURE DRAGGED SELECTION AREA ---
+  const handleCaptureSelectedArea = async (left: number, top: number, width: number, height: number) => {
+    if (width < 10 || height < 10) {
+      alert("Please select a larger region to export.");
+      return;
+    }
+
+    setIsExporting(true);
+    setToastMessage('Capturing custom selection...');
+
+    try {
+      const viewportNode = document.getElementById('canvas-viewport');
+      if (!viewportNode) {
+        alert("Viewport element not found.");
+        setIsExporting(false);
+        return;
+      }
+
+      // Hide the crop overlay before capturing so it doesn't appear in the image
+      setIsSelectionMode(false);
+      await new Promise(resolve => setTimeout(resolve, 80));
+
+      const pixelRatio = 2; // Capture at 2x high resolution
+
+      // Capture current viewport layout
+      const dataUrl = await toPng(viewportNode, {
+        pixelRatio,
+        cacheBust: true,
+        style: {
+          '--bg-dark': '#09090b',
+          '--panel-dark': '#0d0d10',
+          '--border-color': '#27272a',
+          '--accent-blue': '#3b82f6',
+          '--accent-blue-hover': '#2563eb',
+          '--accent-purple': '#6366f1',
+          '--text-main': '#f4f4f5',
+          '--text-muted': '#a1a1aa',
+          '--card-bg': '#141417',
+          '--color-pk': '#fbbf24',
+          '--color-fk': '#2dd4bf',
+          '--color-unique': '#c084fc',
+          '--color-nullable': '#94a3b8',
+        } as any
+      });
+
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = dataUrl;
+      img.onload = () => {
+        const offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas.width = width * pixelRatio;
+        offscreenCanvas.height = height * pixelRatio;
+
+        const ctx = offscreenCanvas.getContext('2d');
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+
+          // Crop exactly what was inside the selection rectangle
+          ctx.drawImage(
+            img,
+            left * pixelRatio,
+            top * pixelRatio,
+            width * pixelRatio,
+            height * pixelRatio,
+            0,
+            0,
+            width * pixelRatio,
+            height * pixelRatio
+          );
+
+          const croppedDataUrl = offscreenCanvas.toDataURL('image/png', 1.0);
+
+          // Download cropped .png
+          const link = document.createElement('a');
+          link.href = croppedDataUrl;
+          link.download = `ERD_Selection_${Date.now()}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          setToastMessage('Selected region exported successfully!');
+          setSelectionBox(null);
+        } else {
+          throw new Error("Canvas context is null");
+        }
+      };
+    } catch (error) {
+      console.error('Selection export failed:', error);
+      alert('Failed to export selection. Try again.');
+      setIsSelectionMode(true); // Restore selection screen
     } finally {
       setIsExporting(false);
     }
@@ -967,6 +1152,7 @@ export default function App() {
                 : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-500/10 hover:shadow-blue-500/25'
             }`}
             id="export-btn"
+            title="Automatically calculate bounds and export entire diagram as PNG"
           >
             {isExporting ? (
               <>
@@ -979,9 +1165,27 @@ export default function App() {
             ) : (
               <>
                 <span>📤</span>
-                <span>Export Static ERD</span>
+                <span>Export Entire ERD</span>
               </>
             )}
+          </button>
+          <button 
+            onClick={() => {
+              setIsSelectionMode(true);
+              setSelectionBox(null);
+              setToastMessage('Draw a box on the canvas to select the export region.');
+            }}
+            disabled={isExporting}
+            className={`px-4.5 py-2 text-xs font-bold rounded-lg border transition-all duration-200 shadow-sm active:scale-[0.97] cursor-pointer flex items-center gap-1.5 ${
+              isSelectionMode 
+                ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 ring-1 ring-blue-500/30 shadow-blue-500/5'
+                : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 hover:text-white border-zinc-700'
+            }`}
+            id="export-selection-btn"
+            title="Select a custom area to export as high-quality PNG"
+          >
+            <span>✂️</span>
+            <span>Export Selection</span>
           </button>
         </div>
       </header>
@@ -1328,6 +1532,10 @@ export default function App() {
                       x2={seg.x2}
                       y2={seg.y2}
                       className="rel-line"
+                      stroke="#6366f1"
+                      strokeWidth="2.5"
+                      fill="none"
+                      strokeLinejoin="round"
                     />
                   ))}
 
@@ -1340,6 +1548,10 @@ export default function App() {
                       x2={seg.x2}
                       y2={seg.y2}
                       className="rel-line"
+                      stroke="#6366f1"
+                      strokeWidth="2.5"
+                      fill="none"
+                      strokeLinejoin="round"
                     />
                   ))}
 
@@ -1471,8 +1683,8 @@ export default function App() {
                     <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
                       <path
                         d={`M 0,${relH / 2} L ${relW / 2},0 L ${relW},${relH / 2} L ${relW / 2},${relH} Z`}
-                        fill="var(--card-bg)"
-                        stroke="var(--accent-purple)"
+                        fill="#141417"
+                        stroke="#6366f1"
                         strokeWidth="2"
                         className="rel-diamond-shape-path transition-all duration-200"
                       />
@@ -1532,6 +1744,125 @@ export default function App() {
             })}
           </div>
         </div>
+
+        {/* --- INTERACTIVE MANUAL SELECTION CROP OVERLAY --- */}
+        {isSelectionMode && (
+          <div
+            className="absolute inset-0 bg-black/50 z-[90] cursor-crosshair flex flex-col items-center justify-between pointer-events-auto"
+            style={{ userSelect: 'none' }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const clickX = e.clientX - rect.left;
+              const clickY = e.clientY - rect.top;
+              setSelectionBox({
+                startX: clickX,
+                startY: clickY,
+                endX: clickX,
+                endY: clickY,
+                isDrawing: true,
+                hasSelection: true,
+              });
+            }}
+            onMouseMove={(e) => {
+              if (!selectionBox || !selectionBox.isDrawing) return;
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const currentX = e.clientX - rect.left;
+              const currentY = e.clientY - rect.top;
+              setSelectionBox(prev => prev ? {
+                ...prev,
+                endX: currentX,
+                endY: currentY,
+              } : null);
+            }}
+            onMouseUp={(e) => {
+              if (!selectionBox || !selectionBox.isDrawing) return;
+              e.stopPropagation();
+              setSelectionBox(prev => prev ? {
+                ...prev,
+                isDrawing: false,
+              } : null);
+            }}
+          >
+            {/* Instruction Banner */}
+            <div className="bg-[#0f0f13] border border-[#27272a] rounded-full px-5 py-2.5 mt-4 text-xs font-semibold text-zinc-100 flex items-center gap-3 shadow-xl backdrop-blur-md animate-fadeIn select-none pointer-events-auto">
+              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span>Drag a box to select the area to export as PNG</span>
+              <span className="text-zinc-500">|</span>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsSelectionMode(false);
+                  setSelectionBox(null);
+                }}
+                className="text-red-400 hover:text-red-300 font-bold hover:underline cursor-pointer"
+              >
+                Cancel (Esc)
+              </button>
+            </div>
+
+            {/* Selection Rectangle rendering with darken outer effect */}
+            {selectionBox && selectionBox.hasSelection && (() => {
+              const left = Math.min(selectionBox.startX, selectionBox.endX);
+              const top = Math.min(selectionBox.startY, selectionBox.endY);
+              const width = Math.abs(selectionBox.startX - selectionBox.endX);
+              const height = Math.abs(selectionBox.startY - selectionBox.endY);
+
+              return (
+                <>
+                  <div
+                    className="absolute border-2 border-dashed border-blue-500 bg-blue-500/10 pointer-events-none"
+                    style={{
+                      left: `${left}px`,
+                      top: `${top}px`,
+                      width: `${width}px`,
+                      height: `${height}px`,
+                      boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.45)',
+                    }}
+                  />
+                  
+                  {/* Floating Action Box below selection */}
+                  {!selectionBox.isDrawing && width > 10 && height > 10 && (
+                    <div
+                      className="absolute bg-[#141417] border border-[#27272a] rounded-lg p-2.5 shadow-2xl flex items-center gap-2.5 z-[100] pointer-events-auto"
+                      style={{
+                        left: `${left + width / 2}px`,
+                        top: `${top + height + 15}px`,
+                        transform: 'translateX(-50%)',
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCaptureSelectedArea(left, top, width, height);
+                        }}
+                        className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3 py-1.5 rounded flex items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
+                      >
+                        <span>📥</span>
+                        <span>Export Selection PNG</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectionBox(null);
+                        }}
+                        className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-semibold text-xs px-2.5 py-1.5 rounded cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            <div className="mb-4 text-[10px] text-zinc-500 pointer-events-none select-none uppercase tracking-widest font-mono">
+              ESC to Cancel • Click and drag to redefine area
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Floating Guide/Help bubble and legend (Dismissible & Toggleable) */}
