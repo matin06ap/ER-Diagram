@@ -111,28 +111,33 @@ body {
 /* --- Panel Toggles --- */
 .panel-toggle {
     position: absolute;
-    top: 20px;
+    top: 24px;
     background: var(--card-bg);
     border: 1px solid var(--border-color);
-    color: var(--text-main);
+    color: var(--text-muted);
     width: 24px;
-    height: 40px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     z-index: 30;
-    border-radius: 6px;
-    transition: transform 0.3s, background 0.2s, border-color 0.2s;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s, border-color 0.2s, color 0.2s;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.45);
+    font-size: 0.75rem;
 }
 .panel-toggle:hover {
-    background: var(--border-color);
+    background: #18181b;
     border-color: var(--text-muted);
+    color: var(--text-main);
 }
-.toggle-left { left: 308px; border-radius: 0 6px 6px 0; }
-.toggle-right { right: 268px; border-radius: 6px 0 0 6px; }
-.left-panel.collapsed ~ .toggle-left { transform: translateX(-308px) rotate(180deg); }
+.toggle-left {
+    left: 319px;
+    border-radius: 0 8px 8px 0;
+    border-left: none; /* Merges seamlessly with the panel border */
+}
+.toggle-right { right: 268px; border-radius: 8px 0 0 8px; }
+.left-panel.collapsed ~ .toggle-left { transform: translateX(-319px) rotate(180deg); }
 .right-panel.collapsed ~ .toggle-right { transform: translateX(268px) rotate(180deg); }
 
 /* --- Forms & Buttons --- */
@@ -282,7 +287,8 @@ body {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    width: 220px;
+    min-width: 220px;
+    max-width: 340px;
     box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.7), 0 4px 12px -5px rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(12px);
     overflow: hidden;
@@ -306,13 +312,14 @@ body {
     background: #141416;
     color: #60a5fa; /* Blue-400 */
     border-bottom: 1px solid var(--border-color);
-    padding: 12px;
+    padding: 10px 12px;
     font-weight: 700;
     font-size: 0.85rem;
     letter-spacing: 0.025em;
     cursor: grab;
     user-select: none;
-    height: 44px;
+    min-height: 44px;
+    height: auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -324,21 +331,21 @@ body {
 .table-node-body { padding: 8px 12px 12px 12px; }
 .attr-line {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     padding: 6px 0;
     border-bottom: 1px solid #202024;
     font-size: 0.8rem;
+    min-height: 26px;
+    height: auto;
 }
 .attr-line:last-child { border-bottom: none; }
-.attr-icons { display: flex; gap: 4px; width: 45px; }
-.attr-name { flex: 1; font-family: var(--font-mono); font-size: 0.8rem; color: #e4e4e7;}
+.attr-icons { display: flex; gap: 4px; width: 45px; shrink-0: 0; flex-shrink: 0; }
+.attr-name { flex: 1; font-family: var(--font-mono); font-size: 0.8rem; color: #e4e4e7; word-break: break-all; white-space: normal; overflow-wrap: anywhere; }
 .attr-type { color: var(--text-muted); font-size: 0.75rem; }
 
 /* --- Interactive HTML Relationship Diamonds --- */
 .rel-node {
     position: absolute;
-    width: 60px; height: 40px;
-    margin-left: -30px; margin-top: -20px; /* Center perfectly on coordinates */
     display: flex; align-items: center; justify-content: center;
     pointer-events: auto;
     cursor: grab;
@@ -346,19 +353,14 @@ body {
 }
 .rel-node.dragging { cursor: grabbing; opacity: 0.8; z-index: 110 !important; }
 
-.rel-diamond-shape {
-    position: absolute;
-    width: 36px; height: 36px;
-    background: var(--card-bg);
-    border: 2px solid var(--accent-purple);
-    transform: rotate(45deg);
-    transition: background 0.2s, border-color 0.2s, transform 0.2s;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+.rel-diamond-shape-path {
+    transition: fill 0.2s, stroke 0.2s, transform 0.2s;
 }
-.rel-node:hover .rel-diamond-shape {
-    background: var(--accent-purple);
-    border-color: #818cf8;
-    transform: rotate(45deg) scale(1.08);
+.rel-node:hover .rel-diamond-shape-path {
+    fill: var(--accent-purple);
+    stroke: #818cf8;
+    transform: scale(1.05);
+    transform-origin: center;
 }
 
 .rel-text-label {
@@ -478,6 +480,8 @@ body {
     flex-direction: column;
     gap: 5px;
     min-width: 100px;
+    max-width: 180px;
+    width: max-content;
     backdrop-filter: blur(8px);
     transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -500,11 +504,16 @@ body {
     color: var(--text-main);
     font-family: var(--font-mono);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
+    word-break: break-all;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 .rel-attr-bullet {
     color: var(--accent-purple);
+    shrink-0: 0;
+    flex-shrink: 0;
 }
 
 

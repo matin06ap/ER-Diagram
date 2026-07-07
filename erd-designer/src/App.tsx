@@ -2,10 +2,48 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Table, Relationship, Attribute } from './types';
 
 // Helper functions for shape layout and line connection math
-function getTableHeight(table: Table): number {
-  const visibleAttrs = table.attributes.filter(attr => !attr.fk).length;
-  if (visibleAttrs === 0) return 60; // 40 header + 20 body padding
-  return 40 + 20 + (visibleAttrs * 26); // 40 header + 20 body padding + attrs * 26
+export function getTableWidth(table: Table): number {
+  let maxLength = table.name.length * 8.5 + 48;
+  table.attributes.filter(attr => !attr.fk).forEach(attr => {
+    const attrLen = 45 + attr.name.length * 8 + 24;
+    if (attrLen > maxLength) {
+      maxLength = attrLen;
+    }
+  });
+  return Math.min(340, Math.max(220, maxLength));
+}
+
+export function getTableHeight(table: Table): number {
+  const w = getTableWidth(table);
+  const headerCharFit = Math.max(1, (w - 48) / 8.5);
+  const headerLines = Math.ceil(table.name.length / headerCharFit);
+  const headerHeight = 44 + Math.max(0, headerLines - 1) * 18;
+  
+  const visibleAttrs = table.attributes.filter(attr => !attr.fk);
+  let attrsHeight = 0;
+  visibleAttrs.forEach(attr => {
+    const attrCharFit = Math.max(1, (w - 69) / 8);
+    const attrLines = Math.ceil(attr.name.length / attrCharFit);
+    const attrRowHeight = 26 + Math.max(0, attrLines - 1) * 16;
+    attrsHeight += attrRowHeight;
+  });
+  
+  if (visibleAttrs.length === 0) {
+    return headerHeight + 20;
+  }
+  return headerHeight + 20 + attrsHeight;
+}
+
+export function getRelationshipWidth(name: string): number {
+  const textWidth = name.length * 6.5;
+  return Math.min(160, Math.max(64, textWidth + 36));
+}
+
+export function getRelationshipHeight(name: string): number {
+  const w = getRelationshipWidth(name);
+  const charFit = Math.max(1, (w - 24) / 6.5);
+  const lines = Math.ceil(name.length / charFit);
+  return 40 + Math.max(0, lines - 1) * 14;
 }
 
 interface Point {
@@ -67,16 +105,15 @@ function getRectIntersection(rect: { x: number, y: number, w: number, h: number 
   return { x: ix, y: iy };
 }
 
-function getDiamondIntersection(center: Point, target: Point): Point {
+function getRhombusIntersection(center: Point, target: Point, w: number, h: number): Point {
   const dx = target.x - center.x;
   const dy = target.y - center.y;
   if (dx === 0 && dy === 0) return center;
   
-  // The boundary of the diamond rotated by 45 degrees satisfies |x| + |y| = d
-  // Side length is 40px, half diagonal is 40 / sqrt(2) = 28.28px.
-  // Add 1.2px for half of the 2.5px stroke width to touch perfectly, d = 29.5px.
-  const d = 29.5;
-  const t = d / (Math.abs(dx) + Math.abs(dy));
+  const halfW = w / 2 + 1;
+  const halfH = h / 2 + 1;
+  
+  const t = 1 / (Math.abs(dx) / halfW + Math.abs(dy) / halfH);
   
   return {
     x: center.x + dx * t,
@@ -626,7 +663,7 @@ export default function App() {
       // Calculate boundaries from tables
       tables.forEach(table => {
         const tableH = getTableHeight(table);
-        const w = 220; // Table cards are 220px wide
+        const w = getTableWidth(table); // Table cards have dynamic width
         minX = Math.min(minX, table.x);
         maxX = Math.max(maxX, table.x + w);
         minY = Math.min(minY, table.y);
@@ -638,17 +675,22 @@ export default function App() {
         const t1 = tables.find(t => t.id === rel.t1);
         const t2 = tables.find(t => t.id === rel.t2);
         if (t1 && t2) {
+          const t1w = getTableWidth(t1);
           const t1h = getTableHeight(t1);
+          const t2w = getTableWidth(t2);
           const t2h = getTableHeight(t2);
-          const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
-          const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
-          const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+          const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
+          const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
+          const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
           const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
 
-          minX = Math.min(minX, mx - 30);
-          maxX = Math.max(maxX, mx + 30);
-          minY = Math.min(minY, my - 30);
-          maxY = Math.max(maxY, my + 30);
+          const relW = getRelationshipWidth(rel.name);
+          const relH = getRelationshipHeight(rel.name);
+
+          minX = Math.min(minX, mx - relW / 2);
+          maxX = Math.max(maxX, mx + relW / 2);
+          minY = Math.min(minY, my - relH / 2);
+          maxY = Math.max(maxY, my + relH / 2);
 
           const hasAttrs = rel.attributes && rel.attributes.length > 0;
           if (hasAttrs) {
@@ -665,7 +707,7 @@ export default function App() {
     }
 
     // Define padded canvas size centered on the visual components
-    const padding = 80;
+    const padding = 100;
     const canvasWidth = (maxX - minX) + padding * 2;
     const canvasHeight = (maxY - minY) + padding * 2;
     const shiftX = -minX + padding;
@@ -676,14 +718,19 @@ export default function App() {
       const t2 = tables.find(t => t.id === rel.t2);
       if (!t1 || !t2) return '';
 
+      const t1w = getTableWidth(t1);
+      const t2w = getTableWidth(t2);
       const t1h = getTableHeight(t1);
       const t2h = getTableHeight(t2);
-      const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
-      const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
+      const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
+      const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
 
-      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
       const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
       const m = { x: mx, y: my };
+
+      const relW = getRelationshipWidth(rel.name);
+      const relH = getRelationshipHeight(rel.name);
 
       let edge1: Point;
       let edge2: Point;
@@ -691,15 +738,15 @@ export default function App() {
       let dia2: Point;
 
       if (t1.id === t2.id) {
-        edge1 = { x: t1.x + 50, y: t1.y };
-        edge2 = { x: t1.x + 170, y: t1.y };
-        dia1 = getDiamondIntersection(m, edge1);
-        dia2 = getDiamondIntersection(m, edge2);
+        edge1 = { x: t1.x + Math.min(60, t1w * 0.25), y: t1.y };
+        edge2 = { x: t1.x + t1w - Math.min(60, t1w * 0.25), y: t1.y };
+        dia1 = getRhombusIntersection(m, edge1, relW, relH);
+        dia2 = getRhombusIntersection(m, edge2, relW, relH);
       } else {
-        edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: 220, h: t1h }, m);
-        edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: 220, h: t2h }, m);
-        dia1 = getDiamondIntersection(m, t1c);
-        dia2 = getDiamondIntersection(m, t2c);
+        edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: t1w, h: t1h }, m);
+        edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: t2w, h: t2h }, m);
+        dia1 = getRhombusIntersection(m, t1c, relW, relH);
+        dia2 = getRhombusIntersection(m, t2c, relW, relH);
       }
 
       // Determine segments to draw (double line if total participation is enabled)
@@ -761,6 +808,8 @@ export default function App() {
     }).join('\n');
 
     const tablesHtml = tables.map((table, index) => {
+      const tWidth = getTableWidth(table);
+      const tHeight = getTableHeight(table);
       // Filter out any foreign key attributes and remove datatype rendering
       const attrsHtml = table.attributes.filter(attr => !attr.fk).map(attr => {
         let icons = '';
@@ -777,10 +826,10 @@ export default function App() {
       }).join('\n');
 
       return `
-        <div class="table-node" id="node_${table.id}" style="left: ${table.x + shiftX}px; top: ${table.y + shiftY}px; z-index: ${index + 10}; cursor: default;">
+        <div class="table-node" id="node_${table.id}" style="left: ${table.x + shiftX}px; top: ${table.y + shiftY}px; width: ${tWidth}px; height: ${tHeight}px; z-index: ${index + 10}; cursor: default;">
           <div class="table-node-header" style="cursor: default;">
-            <span>${table.name}</span>
-            <div style="display: flex; gap: 6px; opacity: 0.6;">
+            <span style="word-break: break-all; white-space: normal; overflow-wrap: anywhere; text-align: left; padding-right: 8px;">${table.name}</span>
+            <div style="display: flex; gap: 6px; opacity: 0.6; flex-shrink: 0;">
               <div style="width: 6px; height: 6px; border-radius: 50%; background-color: #6b7280;"></div>
               <div style="width: 6px; height: 6px; border-radius: 50%; background-color: #6b7280;"></div>
             </div>
@@ -795,13 +844,18 @@ export default function App() {
       const t2 = tables.find(t => t.id === rel.t2);
       if (!t1 || !t2) return '';
 
+      const t1w = getTableWidth(t1);
+      const t2w = getTableWidth(t2);
       const t1h = getTableHeight(t1);
       const t2h = getTableHeight(t2);
-      const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
-      const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
+      const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
+      const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
 
-      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
       const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+
+      const relW = getRelationshipWidth(rel.name);
+      const relH = getRelationshipHeight(rel.name);
 
       const hasAttrs = rel.attributes && rel.attributes.length > 0;
       let attrsBoxHtml = '';
@@ -823,9 +877,11 @@ export default function App() {
       }
 
       return `
-        <div class="rel-node" id="rel_node_${rel.id}" style="left: ${mx + shiftX}px; top: ${my + shiftY}px; cursor: help;">
-          <div class="rel-diamond-shape"></div>
-          <div class="rel-text-label">${rel.name.substring(0, 5)}</div>
+        <div class="rel-node" id="rel_node_${rel.id}" style="left: ${mx + shiftX}px; top: ${my + shiftY}px; width: ${relW}px; height: ${relH}px; margin-left: -${relW / 2}px; margin-top: -${relH / 2}px; cursor: help;">
+          <svg style="position: absolute; top:0; left:0; width:100%; height:100%; overflow:visible; pointer-events:none;">
+            <path d="M 0,${relH / 2} L ${relW / 2},0 L ${relW},${relH / 2} L ${relW / 2},${relH} Z" fill="var(--card-bg)" stroke="var(--accent-purple)" stroke-width="2" class="rel-diamond-shape-path" />
+          </svg>
+          <div class="rel-text-label" style="text-align: center; padding: 6px; word-break: break-word; white-space: normal; overflow-wrap: anywhere; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">${rel.name}</div>
           <div class="rel-tooltip">
             <div class="rel-tooltip-title">${rel.name}</div>
             <div class="rel-tooltip-body">
@@ -894,18 +950,18 @@ export default function App() {
         }
         #svg-layer { pointer-events: none; z-index: 1; }
         #tables-layer { z-index: 2; pointer-events: none; }
-        .table-node { position: absolute; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 220px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6); overflow: hidden; pointer-events: auto; }
+        .table-node { position: absolute; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; min-width: 220px; max-width: 340px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6); overflow: hidden; pointer-events: auto; }
         .table-node:hover { border-color: var(--accent-blue); box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2); z-index: 100 !important; }
-        .table-node-header { background: #1a1a1a; color: var(--accent-blue); border-bottom: 1px solid var(--border-color); padding: 10px; font-weight: bold; font-family: monospace; text-align: center; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 14px; padding-right: 14px; }
-        .table-node-body { padding: 10px; }
-        .attr-line { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; }
+        .table-node-header { background: #1a1a1a; color: var(--accent-blue); border-bottom: 1px solid var(--border-color); padding: 10px 12px; font-weight: bold; font-family: monospace; text-align: center; min-height: 44px; height: auto; display: flex; align-items: center; justify-content: space-between; padding-left: 14px; padding-right: 14px; }
+        .table-node-body { padding: 8px 12px 12px 12px; }
+        .attr-line { display: flex; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; min-height: 26px; height: auto; }
         .attr-line:last-child { border-bottom: none; }
-        .attr-icons { display: flex; gap: 4px; width: 45px; }
-        .attr-name { flex: 1; font-family: monospace; font-size: 0.9rem;}
+        .attr-icons { display: flex; gap: 4px; width: 45px; flex-shrink: 0; }
+        .attr-name { flex: 1; font-family: monospace; font-size: 0.9rem; word-break: break-all; white-space: normal; overflow-wrap: anywhere; }
         .attr-type { color: var(--text-muted); font-size: 0.75rem; }
-        .rel-node { position: absolute; width: 60px; height: 40px; margin-left: -30px; margin-top: -20px; display: flex; align-items: center; justify-content: center; pointer-events: auto; z-index: 50; }
-        .rel-diamond-shape { position: absolute; width: 40px; height: 40px; background: var(--card-bg); border: 2px solid var(--accent-purple); transform: rotate(45deg); transition: background 0.3s; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        .rel-node:hover .rel-diamond-shape { background: var(--accent-purple); }
+        .rel-node { position: absolute; display: flex; align-items: center; justify-content: center; pointer-events: auto; z-index: 50; }
+        .rel-diamond-shape-path { transition: fill 0.2s, stroke 0.2s, transform 0.2s; }
+        .rel-node:hover .rel-diamond-shape-path { fill: var(--accent-purple); stroke: #818cf8; transform: scale(1.05); transform-origin: center; }
         .rel-text-label { position: relative; color: var(--text-main); font-size: 11px; font-weight: bold; user-select: none; z-index: 2; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
         .rel-tooltip { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); background: var(--panel-dark); border: 1px solid var(--accent-purple); padding: 12px; border-radius: 8px; width: max-content; box-shadow: 0 8px 25px rgba(0,0,0,0.7); backdrop-filter: blur(8px); opacity: 0; visibility: hidden; transition: opacity 0.2s, top 0.2s; pointer-events: none; z-index: 200; }
         .rel-node:hover .rel-tooltip { opacity: 1; visibility: visible; top: 35px; }
@@ -913,10 +969,10 @@ export default function App() {
         .rel-tooltip-body { color: var(--text-muted); font-size: 0.85rem; line-height: 1.4; }
         .rel-tooltip-body strong { color: var(--text-main); }
         .rel-line { stroke: var(--accent-purple); stroke-width: 2.5; fill: none; stroke-linejoin: round; }
-        .rel-attr-box { position: absolute; background: #111111; border: 1.5px dashed var(--accent-purple); border-radius: 6px; padding: 6px 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none; z-index: 45; display: flex; flex-direction: column; gap: 4px; min-width: 90px; }
+        .rel-attr-box { position: absolute; background: #111111; border: 1.5px dashed var(--accent-purple); border-radius: 6px; padding: 6px 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none; z-index: 45; display: flex; flex-direction: column; gap: 4px; min-width: 90px; max-width: 180px; width: max-content; }
         .rel-attr-title { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em; border-bottom: 1px solid #222222; padding-bottom: 2px; margin-bottom: 2px; }
-        .rel-attr-item { font-size: 0.75rem; color: var(--text-main); font-family: monospace; display: flex; align-items: center; gap: 4px; }
-        .rel-attr-bullet { color: var(--accent-purple); }
+        .rel-attr-item { font-size: 0.75rem; color: var(--text-main); font-family: monospace; display: flex; align-items: flex-start; gap: 4px; word-break: break-all; white-space: normal; overflow-wrap: anywhere; }
+        .rel-attr-bullet { color: var(--accent-purple); flex-shrink: 0; }
         .icon.pk { color: var(--color-pk); }
         .icon.fk { color: var(--color-fk); }
         .icon.unique { color: var(--color-unique); }
@@ -1035,23 +1091,23 @@ export default function App() {
   return (
     <div className="h-screen w-screen flex flex-col bg-[#09090B] text-zinc-300 font-sans overflow-hidden select-none" id="app-container">
       {/* Header Navigation */}
-      <header className="h-14 border-b border-[#27272a] bg-[#0d0d10]/95 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-30 shadow-md shadow-black/35">
+      <header className="h-16 border-b border-[#27272a] bg-[#0d0d10]/95 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-30 shadow-md shadow-black/35">
         <div className="flex items-center gap-4">
-          <div className="w-8 h-8 bg-gradient-to-tr from-blue-700 to-blue-500 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 hover:scale-105 transition-transform duration-200">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-9 h-9 bg-gradient-to-tr from-blue-700 to-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 hover:scale-105 transition-transform duration-200">
+            <svg className="w-5.5 h-5.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
             </svg>
           </div>
-          <h1 className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+          <h1 className="text-base font-extrabold tracking-tight text-white flex items-center gap-2.5">
             StructView
-            <span className="text-[9px] font-mono font-medium text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded-full border border-zinc-700/60">v2.4.1</span>
+            <span className="text-[10px] font-mono font-medium text-zinc-300 bg-zinc-800/80 px-2.5 py-0.5 rounded-full border border-zinc-700/60">v2.4.1</span>
           </h1>
         </div>
         
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <button 
             onClick={handleSaveManual} 
-            className="px-3.5 py-1.5 text-xs bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-lg border border-zinc-700 transition-all duration-200 cursor-pointer font-semibold shadow-sm active:scale-[0.97] flex items-center gap-1.5"
+            className="px-4 py-2 text-xs bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-lg border border-zinc-700 transition-all duration-200 cursor-pointer font-bold shadow-sm active:scale-[0.97] flex items-center gap-1.5"
             id="save-layout-btn"
           >
             <span>💾</span>
@@ -1059,7 +1115,7 @@ export default function App() {
           </button>
           <button 
             onClick={handleClearSaved} 
-            className="px-3.5 py-1.5 text-xs bg-red-950/20 hover:bg-red-900/30 text-red-400 hover:text-red-300 rounded-lg border border-red-900/30 transition-all duration-200 cursor-pointer font-semibold shadow-sm active:scale-[0.97] flex items-center gap-1.5"
+            className="px-4 py-2 text-xs bg-red-950/20 hover:bg-red-900/30 text-red-400 hover:text-red-300 rounded-lg border border-red-900/30 transition-all duration-200 cursor-pointer font-bold shadow-sm active:scale-[0.97] flex items-center gap-1.5"
             id="reset-canvas-btn"
           >
             <span>🧹</span>
@@ -1067,7 +1123,7 @@ export default function App() {
           </button>
           <button 
             onClick={handleExportStatic} 
-            className="px-4 py-1.5 text-xs bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-semibold transition-all duration-200 shadow-md shadow-blue-500/10 hover:shadow-blue-500/25 active:scale-[0.97] cursor-pointer flex items-center gap-1.5"
+            className="px-4.5 py-2 text-xs bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-bold transition-all duration-200 shadow-md shadow-blue-500/10 hover:shadow-blue-500/25 active:scale-[0.97] cursor-pointer flex items-center gap-1.5"
             id="export-btn"
           >
             <span>📤</span>
@@ -1299,7 +1355,7 @@ export default function App() {
         className="panel-toggle toggle-left"
         title="Toggle Left Panel"
         onClick={() => setLeftCollapsed(!leftCollapsed)}
-        style={{ left: leftCollapsed ? '10px' : '308px', transform: leftCollapsed ? 'rotate(180deg)' : 'none' }}
+        style={{ left: leftCollapsed ? '0px' : '319px', transform: leftCollapsed ? 'rotate(180deg)' : 'none' }}
       >
         ◀
       </button>
@@ -1325,14 +1381,19 @@ export default function App() {
               const t2 = tables.find(t => t.id === rel.t2);
               if (!t1 || !t2) return null;
 
+              const t1w = getTableWidth(t1);
+              const t2w = getTableWidth(t2);
               const t1h = getTableHeight(t1);
               const t2h = getTableHeight(t2);
-              const t1c = { x: t1.x + 110, y: t1.y + t1h / 2 };
-              const t2c = { x: t2.x + 110, y: t2.y + t2h / 2 };
+              const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
+              const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
 
-              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (t1c.x + t2c.x) / 2);
+              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
               const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
               const m = { x: mx, y: my };
+
+              const relW = getRelationshipWidth(rel.name);
+              const relH = getRelationshipHeight(rel.name);
 
               let edge1: Point;
               let edge2: Point;
@@ -1341,15 +1402,15 @@ export default function App() {
 
               if (t1.id === t2.id) {
                 // Self relationship connection points at top-left and top-right of table
-                edge1 = { x: t1.x + 50, y: t1.y };
-                edge2 = { x: t1.x + 170, y: t1.y };
-                dia1 = getDiamondIntersection(m, edge1);
-                dia2 = getDiamondIntersection(m, edge2);
+                edge1 = { x: t1.x + Math.min(60, t1w * 0.25), y: t1.y };
+                edge2 = { x: t1.x + t1w - Math.min(60, t1w * 0.25), y: t1.y };
+                dia1 = getRhombusIntersection(m, edge1, relW, relH);
+                dia2 = getRhombusIntersection(m, edge2, relW, relH);
               } else {
-                edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: 220, h: t1h }, m);
-                edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: 220, h: t2h }, m);
-                dia1 = getDiamondIntersection(m, t1c);
-                dia2 = getDiamondIntersection(m, t2c);
+                edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: t1w, h: t1h }, m);
+                edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: t2w, h: t2h }, m);
+                dia1 = getRhombusIntersection(m, t1c, relW, relH);
+                dia2 = getRhombusIntersection(m, t2c, relW, relH);
               }
 
               // Determine segments to draw (double line if total participation is enabled)
@@ -1483,6 +1544,8 @@ export default function App() {
                 style={{
                   left: `${table.x}px`,
                   top: `${table.y}px`,
+                  width: `${getTableWidth(table)}px`,
+                  height: `${getTableHeight(table)}px`,
                   zIndex: draggedTableId === table.id ? 100 : index + 10,
                 }}
               >
@@ -1491,8 +1554,8 @@ export default function App() {
                   id={`header_${table.id}`}
                   onMouseDown={(e) => handleTableMouseDown(e, table.id)}
                 >
-                  <span>{table.name}</span>
-                  <div className="flex gap-1.5 opacity-60">
+                  <span className="break-all whitespace-normal overflow-wrap-anywhere pr-2 text-left">{table.name}</span>
+                  <div className="flex gap-1.5 opacity-60 shrink-0">
                     <div className="w-1.5 h-1.5 rounded-full bg-gray-500"></div>
                     <div className="w-1.5 h-1.5 rounded-full bg-gray-500"></div>
                   </div>
@@ -1520,18 +1583,18 @@ export default function App() {
               const t2 = tables.find(t => t.id === rel.t2);
               if (!t1 || !t2) return null;
 
-              let x1 = t1.x + 110;
-              let y1 = t1.y + 20;
-              let x2 = t2.x + 110;
-              let y2 = t2.y + 20;
+              const t1w = getTableWidth(t1);
+              const t2w = getTableWidth(t2);
+              const t1h = getTableHeight(t1);
+              const t2h = getTableHeight(t2);
+              const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
+              const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
 
-              if (t1.id === t2.id) {
-                x1 = t1.x + 50;
-                x2 = t1.x + 170;
-              }
+              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
+              const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
 
-              const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + 110 : (x1 + x2) / 2);
-              const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (y1 + y2) / 2);
+              const relW = getRelationshipWidth(rel.name);
+              const relH = getRelationshipHeight(rel.name);
 
               const hasAttrs = rel.attributes && rel.attributes.length > 0;
 
@@ -1543,12 +1606,35 @@ export default function App() {
                     style={{
                       left: `${mx}px`,
                       top: `${my}px`,
+                      width: `${relW}px`,
+                      height: `${relH}px`,
+                      marginLeft: `-${relW / 2}px`,
+                      marginTop: `-${relH / 2}px`,
                       zIndex: draggedRelId === rel.id ? 110 : 50,
                     }}
                     onMouseDown={(e) => handleRelMouseDown(e, rel.id)}
                   >
-                    <div className="rel-diamond-shape"></div>
-                    <div className="rel-text-label">{rel.name.substring(0, 5)}</div>
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+                      <path
+                        d={`M 0,${relH / 2} L ${relW / 2},0 L ${relW},${relH / 2} L ${relW / 2},${relH} Z`}
+                        fill="var(--card-bg)"
+                        stroke="var(--accent-purple)"
+                        strokeWidth="2"
+                        className="rel-diamond-shape-path transition-all duration-200"
+                      />
+                    </svg>
+                    <div className="rel-text-label px-2 text-center" style={{
+                      wordBreak: 'break-word',
+                      whiteSpace: 'normal',
+                      overflowWrap: 'anywhere',
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {rel.name}
+                    </div>
                     <div className="rel-tooltip">
                       <div className="rel-tooltip-title">{rel.name}</div>
                       <div className="rel-tooltip-body">
@@ -1597,17 +1683,17 @@ export default function App() {
       {/* Floating Guide/Help bubble and legend (Dismissible & Toggleable) */}
       {!guideHidden && (
         <div 
-          className="absolute right-6 bottom-16 w-64 bg-[#121212]/95 border border-[#262626] rounded-xl p-4 shadow-2xl backdrop-blur-md z-40 animate-fadeIn flex flex-col gap-3"
+          className="absolute right-8 bottom-20 w-72 bg-[#0d0d10]/95 border border-[#27272a] rounded-2xl p-5 shadow-2xl shadow-black/60 backdrop-blur-md z-40 animate-fadeIn flex flex-col gap-4"
           id="floating-guide-panel"
         >
-          <div className="flex items-center justify-between border-b border-[#262626] pb-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-blue-400">
+          <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-400">
               <span>💡</span>
               <span>Interactive Guide</span>
             </div>
             <button 
               onClick={handleCloseGuidePermanently} 
-              className="text-gray-500 hover:text-red-400 text-lg transition-colors cursor-pointer leading-none"
+              className="text-zinc-500 hover:text-red-400 text-xl transition-all duration-200 cursor-pointer leading-none hover:scale-110"
               title="Dismiss guide permanently"
               id="close-guide-btn"
             >
@@ -1615,23 +1701,23 @@ export default function App() {
             </button>
           </div>
           
-          <div className="text-xs text-gray-400 leading-relaxed flex flex-col gap-1.5">
-            <p>• <strong>Drag</strong> table headers to position them.</p>
-            <p>• <strong>Drag</strong> relationship diamonds to reroute lines.</p>
-            <p>• <strong>Hover</strong> tables to highlight their connections.</p>
-            <p>• <strong>Total Participation</strong> renders double lines via the sidebar checkbox.</p>
-            <p>• <strong>Relationship Attributes</strong> can be added in the sidebar to float by the diamond.</p>
+          <div className="text-xs text-zinc-400 leading-relaxed flex flex-col gap-2">
+            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Drag</strong> table headers to position them.</span></p>
+            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Drag</strong> relationship diamonds to reroute lines.</span></p>
+            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Hover</strong> tables to highlight their connections.</span></p>
+            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Total Participation</strong> renders double lines via the sidebar checkbox.</span></p>
+            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Relationship Attributes</strong> can be added in the sidebar to float by the diamond.</span></p>
           </div>
 
-          <div className="border-t border-[#262626] pt-2">
-            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Legend</h4>
-            <ul className="text-xs text-gray-300 flex flex-col gap-1.5">
-              <li className="flex items-center gap-2"><span className="text-[#ecc94b]">🔑</span> Primary Key</li>
-              <li className="flex items-center gap-2"><span className="text-[#b794f4]">⭐</span> Unique</li>
-              <li className="flex items-center gap-2"><span className="text-[#718096]">○</span> Nullable</li>
-              <li className="flex items-center gap-2"><span className="text-[#6366f1]">◇</span> Relationship</li>
-              <li className="flex items-center gap-2"><span className="text-gray-400 font-mono text-[9px]">══</span> Total Participation (Double Line)</li>
-              <li className="flex items-center gap-2"><span className="text-gray-400 font-mono text-[9px]">- -</span> Relationship Attribute Connector</li>
+          <div className="border-t border-[#27272a] pt-3">
+            <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2.5">Legend</h4>
+            <ul className="text-xs text-zinc-300 flex flex-col gap-2">
+              <li className="flex items-center gap-2.5"><span className="text-[#fbbf24]">🔑</span> Primary Key</li>
+              <li className="flex items-center gap-2.5"><span className="text-[#c084fc]">⭐</span> Unique</li>
+              <li className="flex items-center gap-2.5"><span className="text-[#94a3b8]">○</span> Nullable</li>
+              <li className="flex items-center gap-2.5"><span className="text-[#6366f1]">◇</span> Relationship</li>
+              <li className="flex items-center gap-2.5"><span className="text-zinc-400 font-mono text-[9px] tracking-tighter">════</span> Total Participation (Double Line)</li>
+              <li className="flex items-center gap-2.5"><span className="text-zinc-400 font-mono text-[9px] tracking-tighter">- - -</span> Relationship Attribute Connector</li>
             </ul>
           </div>
         </div>
@@ -1648,7 +1734,7 @@ export default function App() {
             localStorage.removeItem('erd_guide_hidden');
           }
         }}
-        className="absolute right-6 bottom-4 bg-[#161616] hover:bg-[#222222] text-xs font-medium text-gray-400 hover:text-gray-100 px-3 py-1.5 rounded-lg border border-[#262626] shadow-lg flex items-center gap-1.5 transition-colors cursor-pointer z-40"
+        className="absolute right-8 bottom-6 bg-[#141417]/95 hover:bg-[#202024] text-xs font-bold text-zinc-400 hover:text-white px-4 py-2.5 rounded-xl border border-[#27272a] shadow-lg shadow-black/40 flex items-center gap-2 transition-all duration-200 cursor-pointer z-40 hover:border-zinc-500 hover:scale-[1.02] active:scale-[0.98]"
         title="Toggle interactive guide and legend"
         id="toggle-guide-btn"
       >
