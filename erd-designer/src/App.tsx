@@ -1,5 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { toPng } from 'html-to-image';
 import { Table, Relationship, Attribute } from './types';
+import { 
+  Database, 
+  Link2, 
+  Plus, 
+  Trash2, 
+  Save, 
+  RefreshCw, 
+  Download, 
+  ChevronLeft, 
+  ChevronRight, 
+  X, 
+  HelpCircle, 
+  Info, 
+  Key, 
+  Star, 
+  Check, 
+  Sliders, 
+  ArrowUp, 
+  ArrowDown, 
+  ChevronUp, 
+  ChevronDown,
+  ZoomIn,
+  ZoomOut,
+  Maximize,
+  Sparkles
+} from 'lucide-react';
 
 // Helper functions for shape layout and line connection math
 export function getTableWidth(table: Table): number {
@@ -44,6 +71,34 @@ export function getRelationshipHeight(name: string): number {
   const charFit = Math.max(1, (w - 24) / 6.5);
   const lines = Math.ceil(name.length / charFit);
   return 40 + Math.max(0, lines - 1) * 14;
+}
+
+export function getRelAttrBoxWidth(rel: Relationship): number {
+  if (!rel.attributes || rel.attributes.length === 0) return 0;
+  let maxItemWidth = 0;
+  rel.attributes.forEach(attr => {
+    const itemWidth = 14 + attr.name.length * 7;
+    if (itemWidth > maxItemWidth) {
+      maxItemWidth = itemWidth;
+    }
+  });
+  const totalW = maxItemWidth + 24; // padding
+  return Math.min(180, Math.max(100, totalW));
+}
+
+export function getRelAttrBoxHeight(rel: Relationship): number {
+  if (!rel.attributes || rel.attributes.length === 0) return 0;
+  const boxWidth = getRelAttrBoxWidth(rel);
+  const availableWidthForText = boxWidth - 38;
+  const charFit = Math.max(1, availableWidthForText / 7);
+  let totalItemsHeight = 0;
+  rel.attributes.forEach((attr) => {
+    const lines = Math.ceil(attr.name.length / charFit);
+    const itemHeight = Math.max(18, lines * 18);
+    totalItemsHeight += itemHeight;
+  });
+  const gapHeight = (rel.attributes.length - 1) * 5;
+  return totalItemsHeight + gapHeight + 16; // 16px vertical padding
 }
 
 interface Point {
@@ -272,6 +327,18 @@ export default function App() {
     return localStorage.getItem('erd_guide_hidden') === 'true';
   });
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
   // Dragging Interaction State
   const [draggedTableId, setDraggedTableId] = useState<string | null>(null);
   const [draggedRelId, setDraggedRelId] = useState<string | null>(null);
@@ -419,7 +486,7 @@ export default function App() {
       rightCollapsed,
     };
     localStorage.setItem('erd_save_data', JSON.stringify(state));
-    alert('Diagram Saved Successfully!');
+    setToastMessage('Layout saved successfully!');
   };
 
   const handleClearSaved = () => {
@@ -647,359 +714,405 @@ export default function App() {
   };
 
   // --- EXPORT STATIC ERD ---
-  const handleExportStatic = () => {
-    // Calculate diagram bounding box dynamically to prevent any cropping/clipping
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
+  const handleExportStatic = async () => {
+    setIsExporting(true);
+    setToastMessage('Preparing high-quality ERD export...');
 
-    if (tables.length === 0 && relationships.length === 0) {
-      minX = 100;
-      minY = 100;
-      maxX = 800;
-      maxY = 600;
-    } else {
-      // Calculate boundaries from tables
-      tables.forEach(table => {
-        const tableH = getTableHeight(table);
-        const w = getTableWidth(table); // Table cards have dynamic width
-        minX = Math.min(minX, table.x);
-        maxX = Math.max(maxX, table.x + w);
-        minY = Math.min(minY, table.y);
-        maxY = Math.max(maxY, table.y + tableH);
-      });
+    try {
+      const canvasNode = document.getElementById('canvas');
+      if (!canvasNode) {
+        alert("Canvas element not found.");
+        setIsExporting(false);
+        return;
+      }
 
-      // Calculate boundaries from relationships and attribute boxes
-      relationships.forEach(rel => {
-        const t1 = tables.find(t => t.id === rel.t1);
-        const t2 = tables.find(t => t.id === rel.t2);
-        if (t1 && t2) {
-          const t1w = getTableWidth(t1);
-          const t1h = getTableHeight(t1);
-          const t2w = getTableWidth(t2);
-          const t2h = getTableHeight(t2);
-          const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
-          const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
-          const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
-          const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+      // Calculate diagram bounding box dynamically to prevent any cropping/clipping
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
 
-          const relW = getRelationshipWidth(rel.name);
-          const relH = getRelationshipHeight(rel.name);
-
-          minX = Math.min(minX, mx - relW / 2);
-          maxX = Math.max(maxX, mx + relW / 2);
-          minY = Math.min(minY, my - relH / 2);
-          maxY = Math.max(maxY, my + relH / 2);
-
-          const hasAttrs = rel.attributes && rel.attributes.length > 0;
-          if (hasAttrs) {
-            const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
-            const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
-            // Attribute boxes are usually 110-120px wide and have dynamic height
-            minX = Math.min(minX, ax - 10);
-            maxX = Math.max(maxX, ax + 140);
-            minY = Math.min(minY, ay - 10);
-            maxY = Math.max(maxY, ay + 110);
-          }
-        }
-      });
-    }
-
-    // Define padded canvas size centered on the visual components
-    const padding = 100;
-    const canvasWidth = (maxX - minX) + padding * 2;
-    const canvasHeight = (maxY - minY) + padding * 2;
-    const shiftX = -minX + padding;
-    const shiftY = -minY + padding;
-
-    const polylinesHtml = relationships.map(rel => {
-      const t1 = tables.find(t => t.id === rel.t1);
-      const t2 = tables.find(t => t.id === rel.t2);
-      if (!t1 || !t2) return '';
-
-      const t1w = getTableWidth(t1);
-      const t2w = getTableWidth(t2);
-      const t1h = getTableHeight(t1);
-      const t2h = getTableHeight(t2);
-      const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
-      const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
-
-      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
-      const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
-      const m = { x: mx, y: my };
-
-      const relW = getRelationshipWidth(rel.name);
-      const relH = getRelationshipHeight(rel.name);
-
-      let edge1: Point;
-      let edge2: Point;
-      let dia1: Point;
-      let dia2: Point;
-
-      if (t1.id === t2.id) {
-        edge1 = { x: t1.x + Math.min(60, t1w * 0.25), y: t1.y };
-        edge2 = { x: t1.x + t1w - Math.min(60, t1w * 0.25), y: t1.y };
-        dia1 = getRhombusIntersection(m, edge1, relW, relH);
-        dia2 = getRhombusIntersection(m, edge2, relW, relH);
+      if (tables.length === 0 && relationships.length === 0) {
+        minX = 100;
+        minY = 100;
+        maxX = 800;
+        maxY = 600;
       } else {
-        edge1 = getRectIntersection({ x: t1.x, y: t1.y, w: t1w, h: t1h }, m);
-        edge2 = getRectIntersection({ x: t2.x, y: t2.y, w: t2w, h: t2h }, m);
-        dia1 = getRhombusIntersection(m, t1c, relW, relH);
-        dia2 = getRhombusIntersection(m, t2c, relW, relH);
+        // Calculate boundaries from tables
+        tables.forEach(table => {
+          const tableH = getTableHeight(table);
+          const w = getTableWidth(table); // Table cards have dynamic width
+          minX = Math.min(minX, table.x);
+          maxX = Math.max(maxX, table.x + w);
+          minY = Math.min(minY, table.y);
+          maxY = Math.max(maxY, table.y + tableH);
+        });
+
+        // Calculate boundaries from relationships and attribute boxes
+        relationships.forEach(rel => {
+          const t1 = tables.find(t => t.id === rel.t1);
+          const t2 = tables.find(t => t.id === rel.t2);
+          if (t1 && t2) {
+            const t1w = getTableWidth(t1);
+            const t1h = getTableHeight(t1);
+            const t2w = getTableWidth(t2);
+            const t2h = getTableHeight(t2);
+            const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
+            const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
+            const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
+            const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
+
+            const relW = getRelationshipWidth(rel.name);
+            const relH = getRelationshipHeight(rel.name);
+
+            minX = Math.min(minX, mx - relW / 2);
+            maxX = Math.max(maxX, mx + relW / 2);
+            minY = Math.min(minY, my - relH / 2);
+            maxY = Math.max(maxY, my + relH / 2);
+
+            const hasAttrs = rel.attributes && rel.attributes.length > 0;
+            if (hasAttrs) {
+              const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
+              const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
+              const relAttrWidth = getRelAttrBoxWidth(rel);
+              const relAttrHeight = getRelAttrBoxHeight(rel);
+              minX = Math.min(minX, ax);
+              maxX = Math.max(maxX, ax + relAttrWidth);
+              minY = Math.min(minY, ay);
+              maxY = Math.max(maxY, ay + relAttrHeight);
+            }
+          }
+        });
       }
 
-      // Determine segments to draw (double line if total participation is enabled)
-      const line1Segments = rel.total1 ? [
-        getParallelSegment(edge1.x, edge1.y, dia1.x, dia1.y, -2.5),
-        getParallelSegment(edge1.x, edge1.y, dia1.x, dia1.y, 2.5),
-      ] : [
-        { x1: edge1.x, y1: edge1.y, x2: dia1.x, y2: dia1.y }
-      ];
+      // Add generous padding to make it clean
+      const padding = 100;
+      const targetWidth = (maxX - minX) + padding * 2;
+      const targetHeight = (maxY - minY) + padding * 2;
+      const shiftX = -minX + padding;
+      const shiftY = -minY + padding;
 
-      const line2Segments = rel.total2 ? [
-        getParallelSegment(edge2.x, edge2.y, dia2.x, dia2.y, -2.5),
-        getParallelSegment(edge2.x, edge2.y, dia2.x, dia2.y, 2.5),
-      ] : [
-        { x1: edge2.x, y1: edge2.y, x2: dia2.x, y2: dia2.y }
-      ];
+      // Render using html-to-image with pixelRatio = 2 for high quality
+      const dataUrl = await toPng(canvasNode, {
+        width: targetWidth,
+        height: targetHeight,
+        style: {
+          transform: `translate(${shiftX}px, ${shiftY}px) scale(1)`,
+          transformOrigin: 'top left',
+          width: `${targetWidth}px`,
+          height: `${targetHeight}px`,
+          background: '#09090b radial-gradient(#1e1e24 1px, transparent 1px)',
+          backgroundSize: '20px 20px',
+        },
+        pixelRatio: 2,
+        cacheBust: true,
+      });
 
-      // Parse cardinality
-      const cardParts = rel.cardinality.split(':');
-      const c1 = cardParts[0] || '1';
-      const c2 = cardParts[1] || 'N';
-
-      // Smart cardinality positions (fixed distance of 20px from boundary if line is long enough)
-      const dx1 = dia1.x - edge1.x;
-      const dy1 = dia1.y - edge1.y;
-      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-      const label1X = len1 > 45 ? edge1.x + (dx1 / len1) * 20 : edge1.x + dx1 * 0.4;
-      const label1Y = len1 > 45 ? edge1.y + (dy1 / len1) * 20 : edge1.y + dy1 * 0.4;
-
-      const dx2 = dia2.x - edge2.x;
-      const dy2 = dia2.y - edge2.y;
-      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-      const label2X = len2 > 45 ? edge2.x + (dx2 / len2) * 20 : edge2.x + dx2 * 0.4;
-      const label2Y = len2 > 45 ? edge2.y + (dy2 / len2) * 20 : edge2.y + dy2 * 0.4;
-
-      const hasAttrs = rel.attributes && rel.attributes.length > 0;
-      const attrBoxX = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
-      const attrBoxY = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
-
-      const lines1Html = line1Segments.map(seg => `
-        <line x1="${seg.x1 + shiftX}" y1="${seg.y1 + shiftY}" x2="${seg.x2 + shiftX}" y2="${seg.y2 + shiftY}" class="rel-line"></line>
-      `).join('\n');
-
-      const lines2Html = line2Segments.map(seg => `
-        <line x1="${seg.x1 + shiftX}" y1="${seg.y1 + shiftY}" x2="${seg.x2 + shiftX}" y2="${seg.y2 + shiftY}" class="rel-line"></line>
-      `).join('\n');
-
-      const dashedConnectorHtml = hasAttrs ? `
-        <line x1="${mx + shiftX}" y1="${my + shiftY}" x2="${attrBoxX + shiftX}" y2="${attrBoxY + 12 + shiftY}" stroke="#6366f1" stroke-dasharray="4,4" stroke-width="1.5"></line>
-      ` : '';
-
-      return `
-        ${dashedConnectorHtml}
-        ${lines1Html}
-        ${lines2Html}
-        <text x="${label1X + shiftX}" y="${label1Y + shiftY}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c1}</text>
-        <text x="${label2X + shiftX}" y="${label2Y + shiftY}" fill="#6366f1" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="central" style="paint-order: stroke; stroke: #0a0a0a; stroke-width: 4px; stroke-linecap: butt; stroke-linejoin: miter; user-select: none;">${c2}</text>
-      `;
-    }).join('\n');
-
-    const tablesHtml = tables.map((table, index) => {
-      const tWidth = getTableWidth(table);
-      const tHeight = getTableHeight(table);
-      // Filter out any foreign key attributes and remove datatype rendering
-      const attrsHtml = table.attributes.filter(attr => !attr.fk).map(attr => {
-        let icons = '';
-        if (attr.pk) icons += `<span class="icon pk" title="Primary Key">🔑</span>`;
-        if (attr.unique) icons += `<span class="icon unique" title="Unique">⭐</span>`;
-        if (attr.nullable) icons += `<span class="icon nullable" title="Nullable">○</span>`;
-
-        return `
-          <div class="attr-line">
-            <div class="attr-icons">${icons}</div>
-            <div class="attr-name">${attr.name}</div>
-          </div>
-        `;
-      }).join('\n');
-
-      return `
-        <div class="table-node" id="node_${table.id}" style="left: ${table.x + shiftX}px; top: ${table.y + shiftY}px; width: ${tWidth}px; height: ${tHeight}px; z-index: ${index + 10}; cursor: default;">
-          <div class="table-node-header" style="cursor: default;">
-            <span style="word-break: break-all; white-space: normal; overflow-wrap: anywhere; text-align: left; padding-right: 8px;">${table.name}</span>
-            <div style="display: flex; gap: 6px; opacity: 0.6; flex-shrink: 0;">
-              <div style="width: 6px; height: 6px; border-radius: 50%; background-color: #6b7280;"></div>
-              <div style="width: 6px; height: 6px; border-radius: 50%; background-color: #6b7280;"></div>
-            </div>
-          </div>
-          <div class="table-node-body">${attrsHtml}</div>
-        </div>
-      `;
-    }).join('\n');
-
-    const relsHtml = relationships.map(rel => {
-      const t1 = tables.find(t => t.id === rel.t1);
-      const t2 = tables.find(t => t.id === rel.t2);
-      if (!t1 || !t2) return '';
-
-      const t1w = getTableWidth(t1);
-      const t2w = getTableWidth(t2);
-      const t1h = getTableHeight(t1);
-      const t2h = getTableHeight(t2);
-      const t1c = { x: t1.x + t1w / 2, y: t1.y + t1h / 2 };
-      const t2c = { x: t2.x + t2w / 2, y: t2.y + t2h / 2 };
-
-      const mx = rel.mx !== null ? rel.mx : (t1.id === t2.id ? t1.x + t1w / 2 : (t1c.x + t2c.x) / 2);
-      const my = rel.my !== null ? rel.my : (t1.id === t2.id ? t1.y - 45 : (t1c.y + t2c.y) / 2);
-
-      const relW = getRelationshipWidth(rel.name);
-      const relH = getRelationshipHeight(rel.name);
-
-      const hasAttrs = rel.attributes && rel.attributes.length > 0;
-      let attrsBoxHtml = '';
-      if (hasAttrs) {
-        const ax = rel.ax !== null && rel.ax !== undefined ? rel.ax : mx + 60;
-        const ay = rel.ay !== null && rel.ay !== undefined ? rel.ay : my - 40;
-        const itemsHtml = (rel.attributes || []).map(attr => `
-          <div class="rel-attr-item">
-            <span class="rel-attr-bullet">○</span>
-            <span>${attr.name}</span>
-          </div>
-        `).join('\n');
-
-        attrsBoxHtml = `
-          <div class="rel-attr-box" style="left: ${ax + shiftX}px; top: ${ay + shiftY}px;">
-            ${itemsHtml}
-          </div>
-        `;
-      }
-
-      return `
-        <div class="rel-node" id="rel_node_${rel.id}" style="left: ${mx + shiftX}px; top: ${my + shiftY}px; width: ${relW}px; height: ${relH}px; margin-left: -${relW / 2}px; margin-top: -${relH / 2}px; cursor: help;">
-          <svg style="position: absolute; top:0; left:0; width:100%; height:100%; overflow:visible; pointer-events:none;">
-            <path d="M 0,${relH / 2} L ${relW / 2},0 L ${relW},${relH / 2} L ${relW / 2},${relH} Z" fill="var(--card-bg)" stroke="var(--accent-purple)" stroke-width="2" class="rel-diamond-shape-path" />
-          </svg>
-          <div class="rel-text-label" style="text-align: center; padding: 6px; word-break: break-word; white-space: normal; overflow-wrap: anywhere; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">${rel.name}</div>
-          <div class="rel-tooltip">
-            <div class="rel-tooltip-title">${rel.name}</div>
-            <div class="rel-tooltip-body">
-              <strong>From:</strong> ${t1.name}<br>
-              <strong>To:</strong> ${t2.name}<br>
-              <strong>Cardinality:</strong> ${rel.cardinality}
-            </div>
-          </div>
-        </div>
-        ${attrsBoxHtml}
-      `;
-    }).join('\n');
-
-    const htmlContent = `<!DOCTYPE html>
+      // Simple, beautiful interactive HTML template
+      const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Exported ERD - StructView</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
         :root {
-            --bg-dark: #0a0a0a;
-            --panel-dark: #121212;
-            --border-color: #262626;
+            --bg-dark: #09090b;
+            --panel-dark: #0d0d10;
+            --border-color: #27272a;
+            --text-main: #f4f4f5;
+            --text-muted: #a1a1aa;
             --accent-blue: #3b82f6;
             --accent-blue-hover: #2563eb;
-            --accent-purple: #6366f1;
-            --text-main: #d1d5db;
-            --text-muted: #6b7280;
-            --card-bg: #161616;
-            --font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            --color-pk: #ecc94b;
-            --color-fk: #4fd1c5;
-            --color-unique: #b794f4;
-            --color-nullable: #718096;
+            --font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
+        body, html {
+            width: 100%;
+            height: 100%;
             margin: 0;
-            padding: 40px;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            padding: 0;
             background-color: var(--bg-dark);
-            cursor: default;
-            font-family: var(--font-family);
             color: var(--text-main);
-            box-sizing: border-box;
-            background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
-            background-size: 20px 20px;
-            overflow: auto;
+            font-family: var(--font-family);
+            overflow: hidden;
         }
-        .canvas-container {
-            position: relative;
-            width: ${canvasWidth}px;
-            height: ${canvasHeight}px;
-            box-sizing: border-box;
-        }
-        #svg-layer, #tables-layer {
+        .viewer-header {
             position: absolute;
             top: 0;
             left: 0;
+            right: 0;
+            height: 64px;
+            background-color: rgba(13, 13, 16, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            z-index: 100;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            letter-spacing: -0.025em;
+        }
+        .logo span.icon {
+            font-size: 1.2rem;
+        }
+        .logo span.badge {
+            font-size: 0.7rem;
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            border: 1px solid rgba(59, 130, 246, 0.25);
+        }
+        .controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .btn {
+            background: #18181b;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover {
+            background: #27272a;
+            border-color: #3f3f46;
+        }
+        .btn-primary {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+        }
+        .btn-primary:hover {
+            background: var(--accent-blue-hover);
+            border-color: var(--accent-blue-hover);
+        }
+        .viewport {
             width: 100%;
             height: 100%;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+            background-color: var(--bg-dark);
+            background-image: radial-gradient(#1e1e24 1px, transparent 1px);
+            background-size: 20px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        #svg-layer { pointer-events: none; z-index: 1; }
-        #tables-layer { z-index: 2; pointer-events: none; }
-        .table-node { position: absolute; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; min-width: 220px; max-width: 340px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6); overflow: hidden; pointer-events: auto; }
-        .table-node:hover { border-color: var(--accent-blue); box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2); z-index: 100 !important; }
-        .table-node-header { background: #1a1a1a; color: var(--accent-blue); border-bottom: 1px solid var(--border-color); padding: 10px 12px; font-weight: bold; font-family: monospace; text-align: center; min-height: 44px; height: auto; display: flex; align-items: center; justify-content: space-between; padding-left: 14px; padding-right: 14px; }
-        .table-node-body { padding: 8px 12px 12px 12px; }
-        .attr-line { display: flex; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; min-height: 26px; height: auto; }
-        .attr-line:last-child { border-bottom: none; }
-        .attr-icons { display: flex; gap: 4px; width: 45px; flex-shrink: 0; }
-        .attr-name { flex: 1; font-family: monospace; font-size: 0.9rem; word-break: break-all; white-space: normal; overflow-wrap: anywhere; }
-        .attr-type { color: var(--text-muted); font-size: 0.75rem; }
-        .rel-node { position: absolute; display: flex; align-items: center; justify-content: center; pointer-events: auto; z-index: 50; }
-        .rel-diamond-shape-path { transition: fill 0.2s, stroke 0.2s, transform 0.2s; }
-        .rel-node:hover .rel-diamond-shape-path { fill: var(--accent-purple); stroke: #818cf8; transform: scale(1.05); transform-origin: center; }
-        .rel-text-label { position: relative; color: var(--text-main); font-size: 11px; font-weight: bold; user-select: none; z-index: 2; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-        .rel-tooltip { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); background: var(--panel-dark); border: 1px solid var(--accent-purple); padding: 12px; border-radius: 8px; width: max-content; box-shadow: 0 8px 25px rgba(0,0,0,0.7); backdrop-filter: blur(8px); opacity: 0; visibility: hidden; transition: opacity 0.2s, top 0.2s; pointer-events: none; z-index: 200; }
-        .rel-node:hover .rel-tooltip { opacity: 1; visibility: visible; top: 35px; }
-        .rel-tooltip-title { color: var(--accent-purple); font-weight: bold; font-size: 1rem; margin-bottom: 5px; }
-        .rel-tooltip-body { color: var(--text-muted); font-size: 0.85rem; line-height: 1.4; }
-        .rel-tooltip-body strong { color: var(--text-main); }
-        .rel-line { stroke: var(--accent-purple); stroke-width: 2.5; fill: none; stroke-linejoin: round; }
-        .rel-attr-box { position: absolute; background: #111111; border: 1.5px dashed var(--accent-purple); border-radius: 6px; padding: 6px 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none; z-index: 45; display: flex; flex-direction: column; gap: 4px; min-width: 90px; max-width: 180px; width: max-content; }
-        .rel-attr-title { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em; border-bottom: 1px solid #222222; padding-bottom: 2px; margin-bottom: 2px; }
-        .rel-attr-item { font-size: 0.75rem; color: var(--text-main); font-family: monospace; display: flex; align-items: flex-start; gap: 4px; word-break: break-all; white-space: normal; overflow-wrap: anywhere; }
-        .rel-attr-bullet { color: var(--accent-purple); flex-shrink: 0; }
-        .icon.pk { color: var(--color-pk); }
-        .icon.fk { color: var(--color-fk); }
-        .icon.unique { color: var(--color-unique); }
-        .icon.nullable { color: var(--color-nullable); }
-        .icon.rel { color: var(--accent-purple); }
+        .viewport:active {
+            cursor: grabbing;
+        }
+        .canvas-image {
+            position: absolute;
+            transform-origin: center center;
+            max-width: none;
+            user-select: none;
+            -webkit-user-drag: none;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            transition: transform 0.05s ease-out;
+        }
+        .zoom-indicator {
+            position: absolute;
+            bottom: 24px;
+            right: 24px;
+            background-color: rgba(13, 13, 16, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: monospace;
+            z-index: 90;
+            pointer-events: none;
+        }
+        .guide-hint {
+            position: absolute;
+            bottom: 24px;
+            left: 24px;
+            background-color: rgba(13, 13, 16, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            z-index: 90;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .dot {
+            width: 6px;
+            height: 6px;
+            background-color: var(--accent-blue);
+            border-radius: 50%;
+            display: inline-block;
+        }
     </style>
 </head>
 <body>
-    <div class="canvas-container">
-        <svg id="svg-layer" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}">${polylinesHtml}</svg>
-        <div id="tables-layer">
-            ${tablesHtml}
-            ${relsHtml}
+    <div class="viewer-header">
+        <div class="logo">
+            <span class="icon">📊</span>
+            <span>StructView Static ERD</span>
+            <span class="badge">High-Res Export</span>
+        </div>
+        <div class="controls">
+            <button class="btn" id="btn-zoom-out" title="Zoom Out">➖ Zoom Out</button>
+            <button class="btn" id="btn-zoom-in" title="Zoom In">➕ Zoom In</button>
+            <button class="btn" id="btn-reset" title="Reset View">🔄 Reset</button>
+            <button class="btn btn-primary" id="btn-download" title="Download High-Res PNG">📥 Download PNG</button>
         </div>
     </div>
+
+    <div class="viewport" id="viewport">
+        <img class="canvas-image" id="canvas-image" src="${dataUrl}" alt="Exported ERD" />
+    </div>
+
+    <div class="zoom-indicator" id="zoom-indicator">100%</div>
+    <div class="guide-hint" id="guide-hint">
+        <span class="dot"></span>
+        <span>Drag to pan • Use mouse wheel to zoom</span>
+    </div>
+
+    <script>
+        const viewport = document.getElementById('viewport');
+        const img = document.getElementById('canvas-image');
+        const zoomInBtn = document.getElementById('btn-zoom-in');
+        const zoomOutBtn = document.getElementById('btn-zoom-out');
+        const resetBtn = document.getElementById('btn-reset');
+        const downloadBtn = document.getElementById('btn-download');
+        const zoomIndicator = document.getElementById('zoom-indicator');
+
+        let scale = 1;
+        let panX = 0;
+        let panY = 0;
+        let isDragging = false;
+        let startX = 0;
+        let startY = 0;
+
+        // Center image initially
+        function updateTransform() {
+            img.style.transform = \`translate(\${panX}px, \${panY}px) scale(\${scale})\`;
+            zoomIndicator.textContent = \`\${Math.round(scale * 100)}%\`;
+        }
+
+        // Drag and Pan
+        viewport.addEventListener('mousedown', (e) => {
+            if (e.target === downloadBtn || e.target.closest('.controls')) return;
+            isDragging = true;
+            startX = e.clientX - panX;
+            startY = e.clientY - panY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panX = e.clientX - startX;
+            panY = e.clientY - startY;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Zoom via Wheel
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomFactor = 0.08;
+            const oldScale = scale;
+            if (e.deltaY < 0) {
+                scale = Math.min(scale + zoomFactor, 4);
+            } else {
+                scale = Math.max(scale - zoomFactor, 0.15);
+            }
+            
+            // Adjust pan to zoom towards mouse position
+            const rect = img.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left - rect.width / 2;
+            const mouseY = e.clientY - rect.top - rect.height / 2;
+            
+            panX -= mouseX * (scale / oldScale - 1);
+            panY -= mouseY * (scale / oldScale - 1);
+
+            updateTransform();
+        }, { passive: false });
+
+        // Button controls
+        zoomInBtn.addEventListener('click', () => {
+            scale = Math.min(scale + 0.15, 4);
+            updateTransform();
+        });
+
+        zoomOutBtn.addEventListener('click', () => {
+            scale = Math.max(scale - 0.15, 0.15);
+            updateTransform();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            scale = 1;
+            panX = 0;
+            panY = 0;
+            updateTransform();
+        });
+
+        // Download PNG
+        downloadBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = img.src;
+            link.download = \`ERD_Export_\${Date.now()}.png\`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        // Initialize
+        updateTransform();
+    </script>
 </body>
 </html>`;
 
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ERD_Export_${Date.now()}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ERD_Export_${Date.now()}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setToastMessage('High-resolution ERD exported successfully!');
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Failed to export ERD as image. Try again.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // --- MOUSE LISTENERS ---
@@ -1123,11 +1236,28 @@ export default function App() {
           </button>
           <button 
             onClick={handleExportStatic} 
-            className="px-4.5 py-2 text-xs bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-bold transition-all duration-200 shadow-md shadow-blue-500/10 hover:shadow-blue-500/25 active:scale-[0.97] cursor-pointer flex items-center gap-1.5"
+            disabled={isExporting}
+            className={`px-4.5 py-2 text-xs text-white rounded-lg font-bold transition-all duration-200 shadow-md active:scale-[0.97] cursor-pointer flex items-center gap-1.5 ${
+              isExporting 
+                ? 'bg-zinc-700/50 text-zinc-400 cursor-not-allowed border border-zinc-600/30' 
+                : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-500/10 hover:shadow-blue-500/25'
+            }`}
             id="export-btn"
           >
-            <span>📤</span>
-            <span>Export Static HTML</span>
+            {isExporting ? (
+              <>
+                <svg className="animate-spin h-3.5 w-3.5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Exporting...</span>
+              </>
+            ) : (
+              <>
+                <span>📤</span>
+                <span>Export Static ERD</span>
+              </>
+            )}
           </button>
         </div>
       </header>
@@ -1140,224 +1270,224 @@ export default function App() {
             <h2>ERD Manager</h2>
           </div>
 
-        <div className="panel-section">
-          <div className="section-title">
-            <h3>Tables</h3>
-            <button id="add-table-btn" className="btn btn-primary btn-sm" onClick={handleAddTable}>+ Add</button>
-          </div>
-          <div id="sidebar-tables-list" className="list-container">
-            {tables.map(table => (
-              <div className="sidebar-item" key={table.id}>
-                <div className="sidebar-item-header">
-                  <input
-                    type="text"
-                    className="input-field"
-                    style={{ margin: 0, width: '60%' }}
-                    value={table.name}
-                    onChange={(e) => handleUpdateTableName(table.id, e.target.value)}
-                  />
-                  <button className="btn btn-sm btn-danger" onClick={() => handleDeleteTable(table.id)}>Del</button>
+          <div className="panel-section">
+            <div className="section-title">
+              <h3>Tables</h3>
+              <button id="add-table-btn" className="btn btn-primary btn-sm" onClick={handleAddTable}>+ Add</button>
+            </div>
+            <div id="sidebar-tables-list" className="list-container">
+              {tables.map(table => (
+                <div className="sidebar-item" key={table.id}>
+                  <div className="sidebar-item-header">
+                    <input
+                      type="text"
+                      className="input-field"
+                      style={{ margin: 0, width: '70%' }}
+                      value={table.name}
+                      onChange={(e) => handleUpdateTableName(table.id, e.target.value)}
+                    />
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDeleteTable(table.id)}>Del</button>
+                  </div>
+                  
+                  <div className="sidebar-item-body">
+                    {table.attributes.filter(attr => !attr.fk).map(attr => (
+                      <div className="attr-row" key={attr.id}>
+                        <input
+                          type="text"
+                          className="input-field"
+                          style={{ margin: 0 }}
+                          value={attr.name}
+                          onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'name', e.target.value)}
+                          placeholder="Name"
+                        />
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDeleteAttribute(table.id, attr.id)}>X</button>
+                        <div style={{ gridColumn: 'span 2', display: 'flex', gap: '8px', fontSize: '11px', marginBottom: '10px' }}>
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" checked={attr.pk} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'pk', e.target.checked)} /> PK
+                          </label>
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" checked={attr.unique} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'unique', e.target.checked)} /> UQ
+                          </label>
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" checked={attr.nullable} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'nullable', e.target.checked)} /> NULL
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn btn-sm" style={{ width: '100%', marginTop: '10px' }} onClick={() => handleAddNewAttribute(table.id)}>+ Add Attribute</button>
                 </div>
-                
-                <div className="sidebar-item-body">
-                  {table.attributes.filter(attr => !attr.fk).map(attr => (
-                    <div className="attr-row" key={attr.id}>
-                      <input
-                        type="text"
-                        className="input-field"
-                        style={{ margin: 0 }}
-                        value={attr.name}
-                        onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'name', e.target.value)}
-                        placeholder="Name"
-                      />
-                      <button className="btn btn-sm btn-danger" onClick={() => handleDeleteAttribute(table.id, attr.id)}>X</button>
-                      <div style={{ gridColumn: 'span 2', display: 'flex', gap: '5px', fontSize: '12px', marginBottom: '10px' }}>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                          <input type="checkbox" checked={attr.pk} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'pk', e.target.checked)} /> PK
-                        </label>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                          <input type="checkbox" checked={attr.unique} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'unique', e.target.checked)} /> UQ
-                        </label>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                          <input type="checkbox" checked={attr.nullable} onChange={(e) => handleUpdateAttribute(table.id, attr.id, 'nullable', e.target.checked)} /> NULL
-                        </label>
+              ))}
+            </div>
+          </div>
+
+          <hr className="divider" />
+
+          <div className="panel-section">
+            <div className="section-title">
+              <h3>Relationships</h3>
+            </div>
+            <div className="form-group row">
+              <select id="rel-t1" className="input-field" value={relT1} onChange={(e) => setRelT1(e.target.value)}>
+                {tables.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              <select id="rel-card" className="input-field narrow" value={relCard} onChange={(e) => setRelCard(e.target.value)}>
+                <option value="1:1">1:1</option>
+                <option value="1:N">1:N</option>
+                <option value="N:1">N:1</option>
+                <option value="N:M">N:M</option>
+              </select>
+              <select id="rel-t2" className="input-field" value={relT2} onChange={(e) => setRelT2(e.target.value)}>
+                {tables.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group row">
+              <input
+                type="text"
+                id="rel-name"
+                className="input-field"
+                placeholder="e.g., Has, Belongs To"
+                value={relName}
+                onChange={(e) => setRelName(e.target.value)}
+              />
+              <button id="add-relationship-btn" className="btn btn-secondary" onClick={handleAddRelationship}>Connect</button>
+            </div>
+            <div id="sidebar-rel-list" className="list-container">
+              {relationships.map(rel => {
+                const t1 = tables.find(t => t.id === rel.t1);
+                const t2 = tables.find(t => t.id === rel.t2);
+                if (!t1 || !t2) return null;
+                return (
+                  <div className="sidebar-item" key={rel.id}>
+                    <div className="sidebar-item-header">
+                      <span style={{ fontSize: '0.85rem' }}>
+                        {t1.name} <strong style={{ color: 'var(--accent-purple)' }}>[{rel.cardinality}]</strong> {t2.name}
+                      </span>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDeleteRelationship(rel.id)}>X</button>
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Name: {rel.name}</div>
+
+                    {/* Participation Toggles */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', marginBottom: '8px' }}>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!rel.total1}
+                          onChange={(e) => handleToggleRelTotal(rel.id, 1, e.target.checked)}
+                        />
+                        <span>Total Participation ({t1.name})</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!rel.total2}
+                          onChange={(e) => handleToggleRelTotal(rel.id, 2, e.target.checked)}
+                        />
+                        <span>Total Participation ({t2.name})</span>
+                      </label>
+                    </div>
+
+                    {/* Relationship Attributes Management */}
+                    <div style={{ borderTop: '1px solid #222', paddingTop: '6px', marginTop: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-main)' }}>Attributes</span>
+                        <button
+                          className="btn btn-sm"
+                          style={{ padding: '2px 6px', fontSize: '10px' }}
+                          onClick={() => handleAddNewRelAttribute(rel.id)}
+                        >
+                          + Add Attr
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {(rel.attributes || []).map((attr, idx) => (
+                          <div
+                            key={attr.id}
+                            style={{ display: 'flex', gap: '4px', alignItems: 'center' }}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData('text/plain', attr.id);
+                              e.dataTransfer.effectAllowed = 'move';
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const draggedId = e.dataTransfer.getData('text/plain');
+                              if (draggedId !== attr.id) {
+                                const targetIdx = (rel.attributes || []).findIndex(a => a.id === attr.id);
+                                if (targetIdx !== -1) {
+                                  handleMoveRelAttribute(rel.id, draggedId, targetIdx);
+                                }
+                              }
+                            }}
+                          >
+                            <span
+                              className="cursor-grab text-gray-500 hover:text-gray-300 select-none text-[11px] px-1"
+                              title="Drag to reorder"
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              ☰
+                            </span>
+                            <input
+                              type="text"
+                              className="input-field"
+                              style={{ margin: 0, padding: '2px 4px', fontSize: '11px', flex: 1 }}
+                              value={attr.name}
+                              placeholder="Attr Name"
+                              onChange={(e) => handleUpdateRelAttribute(rel.id, attr.id, e.target.value)}
+                            />
+                            <button
+                              className="btn btn-sm"
+                              style={{ padding: '2px 4px', fontSize: '10px' }}
+                              onClick={() => handleReorderRelAttribute(rel.id, attr.id, 'up')}
+                              disabled={idx === 0}
+                              title="Move Up"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              style={{ padding: '2px 4px', fontSize: '10px' }}
+                              onClick={() => handleReorderRelAttribute(rel.id, attr.id, 'down')}
+                              disabled={idx === (rel.attributes || []).length - 1}
+                              title="Move Down"
+                            >
+                              ▼
+                            </button>
+                            <button
+                              className="btn btn-sm btn-danger"
+                              style={{ padding: '2px 6px', fontSize: '10px' }}
+                              onClick={() => handleDeleteRelAttribute(rel.id, attr.id)}
+                              title="Delete Attribute"
+                            >
+                              X
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-                <button className="btn btn-sm" style={{ width: '100%', marginTop: '10px' }} onClick={() => handleAddNewAttribute(table.id)}>+ Add Attribute</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <hr className="divider" />
-
-        <div className="panel-section">
-          <div className="section-title">
-            <h3>Relationships</h3>
-          </div>
-          <div className="form-group row">
-            <select id="rel-t1" className="input-field" value={relT1} onChange={(e) => setRelT1(e.target.value)}>
-              {tables.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-            <select id="rel-card" className="input-field narrow" value={relCard} onChange={(e) => setRelCard(e.target.value)}>
-              <option value="1:1">1:1</option>
-              <option value="1:N">1:N</option>
-              <option value="N:1">N:1</option>
-              <option value="N:M">N:M</option>
-            </select>
-            <select id="rel-t2" className="input-field" value={relT2} onChange={(e) => setRelT2(e.target.value)}>
-              {tables.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group row">
-            <input
-              type="text"
-              id="rel-name"
-              className="input-field"
-              placeholder="e.g., Has, Belongs To"
-              value={relName}
-              onChange={(e) => setRelName(e.target.value)}
-            />
-            <button id="add-relationship-btn" className="btn btn-secondary" onClick={handleAddRelationship}>Connect</button>
-          </div>
-          <div id="sidebar-rel-list" className="list-container">
-            {relationships.map(rel => {
-              const t1 = tables.find(t => t.id === rel.t1);
-              const t2 = tables.find(t => t.id === rel.t2);
-              if (!t1 || !t2) return null;
-              return (
-                <div className="sidebar-item" key={rel.id}>
-                  <div className="sidebar-item-header">
-                    <span style={{ fontSize: '0.85rem' }}>
-                      {t1.name} <strong style={{ color: 'var(--accent-purple)' }}>[{rel.cardinality}]</strong> {t2.name}
-                    </span>
-                    <button className="btn btn-sm btn-danger" onClick={() => handleDeleteRelationship(rel.id)}>X</button>
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Name: {rel.name}</div>
-
-                  {/* Participation Toggles */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', marginBottom: '8px' }}>
-                    <label className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!!rel.total1}
-                        onChange={(e) => handleToggleRelTotal(rel.id, 1, e.target.checked)}
-                      />
-                      <span>Total Participation ({t1.name})</span>
-                    </label>
-                    <label className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!!rel.total2}
-                        onChange={(e) => handleToggleRelTotal(rel.id, 2, e.target.checked)}
-                      />
-                      <span>Total Participation ({t2.name})</span>
-                    </label>
-                  </div>
-
-                  {/* Relationship Attributes Management */}
-                  <div style={{ borderTop: '1px solid #222', paddingTop: '6px', marginTop: '6px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-main)' }}>Attributes</span>
-                      <button
-                        className="btn btn-sm"
-                        style={{ padding: '2px 6px', fontSize: '10px' }}
-                        onClick={() => handleAddNewRelAttribute(rel.id)}
-                      >
-                        + Add Attr
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {(rel.attributes || []).map((attr, idx) => (
-                        <div
-                          key={attr.id}
-                          style={{ display: 'flex', gap: '4px', alignItems: 'center' }}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('text/plain', attr.id);
-                            e.dataTransfer.effectAllowed = 'move';
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const draggedId = e.dataTransfer.getData('text/plain');
-                            if (draggedId !== attr.id) {
-                              const targetIdx = (rel.attributes || []).findIndex(a => a.id === attr.id);
-                              if (targetIdx !== -1) {
-                                handleMoveRelAttribute(rel.id, draggedId, targetIdx);
-                              }
-                            }
-                          }}
-                        >
-                          <span
-                            className="cursor-grab text-gray-500 hover:text-gray-300 select-none text-[11px] px-1"
-                            title="Drag to reorder"
-                            onMouseDown={(e) => e.stopPropagation()}
-                          >
-                            ☰
-                          </span>
-                          <input
-                            type="text"
-                            className="input-field"
-                            style={{ margin: 0, padding: '2px 4px', fontSize: '11px', flex: 1 }}
-                            value={attr.name}
-                            placeholder="Attr Name"
-                            onChange={(e) => handleUpdateRelAttribute(rel.id, attr.id, e.target.value)}
-                          />
-                          <button
-                            className="btn btn-sm"
-                            style={{ padding: '2px 4px', fontSize: '10px' }}
-                            onClick={() => handleReorderRelAttribute(rel.id, attr.id, 'up')}
-                            disabled={idx === 0}
-                            title="Move Up"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            className="btn btn-sm"
-                            style={{ padding: '2px 4px', fontSize: '10px' }}
-                            onClick={() => handleReorderRelAttribute(rel.id, attr.id, 'down')}
-                            disabled={idx === (rel.attributes || []).length - 1}
-                            title="Move Down"
-                          >
-                            ▼
-                          </button>
-                          <button
-                            className="btn btn-sm btn-danger"
-                            style={{ padding: '2px 6px', fontSize: '10px' }}
-                            onClick={() => handleDeleteRelAttribute(rel.id, attr.id)}
-                            title="Delete Attribute"
-                          >
-                            X
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
 
       {/* Toggle for Left Panel */}
       <button
         id="toggle-left"
-        className="panel-toggle toggle-left"
+        className="absolute z-40 top-1/2 -translate-y-1/2 w-6 h-14 bg-zinc-900 border-y border-r border-zinc-800 rounded-r-xl flex items-center justify-center hover:bg-zinc-850 text-zinc-400 hover:text-white transition-all cursor-pointer shadow-md shadow-black/35 active:scale-95"
         title="Toggle Left Panel"
         onClick={() => setLeftCollapsed(!leftCollapsed)}
-        style={{ left: leftCollapsed ? '0px' : '319px', transform: leftCollapsed ? 'rotate(180deg)' : 'none' }}
+        style={{ left: leftCollapsed ? '0px' : '319px' }}
       >
-        ◀
+        {leftCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
 
       {/* CENTER PANEL: ERD Canvas */}
@@ -1683,85 +1813,120 @@ export default function App() {
       {/* Floating Guide/Help bubble and legend (Dismissible & Toggleable) */}
       {!guideHidden && (
         <div 
-          className="absolute right-8 bottom-20 w-72 bg-[#0d0d10]/95 border border-[#27272a] rounded-2xl p-5 shadow-2xl shadow-black/60 backdrop-blur-md z-40 animate-fadeIn flex flex-col gap-4"
+          className="absolute right-6 bottom-20 w-80 bg-[#0d0d10]/95 border border-[#27272a]/90 rounded-2xl p-5 shadow-2xl shadow-black/85 backdrop-blur-md z-40 animate-fadeIn flex flex-col gap-4 border-l-blue-500/50"
           id="floating-guide-panel"
         >
-          <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-400">
-              <span>💡</span>
+          <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-400">
+              <HelpCircle className="w-4 h-4 text-blue-400" />
               <span>Interactive Guide</span>
             </div>
             <button 
               onClick={handleCloseGuidePermanently} 
-              className="text-zinc-500 hover:text-red-400 text-xl transition-all duration-200 cursor-pointer leading-none hover:scale-110"
+              className="text-zinc-500 hover:text-red-400 p-1 rounded-lg hover:bg-zinc-900 transition-all duration-200 cursor-pointer"
               title="Dismiss guide permanently"
               id="close-guide-btn"
             >
-              &times;
+              <X className="w-4 h-4" />
             </button>
           </div>
           
-          <div className="text-xs text-zinc-400 leading-relaxed flex flex-col gap-2">
-            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Drag</strong> table headers to position them.</span></p>
-            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Drag</strong> relationship diamonds to reroute lines.</span></p>
-            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Hover</strong> tables to highlight their connections.</span></p>
-            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Total Participation</strong> renders double lines via the sidebar checkbox.</span></p>
-            <p className="flex gap-1.5"><span className="text-blue-500">•</span> <span><strong>Relationship Attributes</strong> can be added in the sidebar to float by the diamond.</span></p>
+          <div className="text-xs text-zinc-400 leading-relaxed flex flex-col gap-2.5">
+            <p className="flex gap-2"><span className="text-blue-500 mt-0.5">•</span> <span><strong>Drag</strong> table headers to position them on canvas.</span></p>
+            <p className="flex gap-2"><span className="text-blue-500 mt-0.5">•</span> <span><strong>Drag</strong> relationship diamonds to reroute connection lines.</span></p>
+            <p className="flex gap-2"><span className="text-blue-500 mt-0.5">•</span> <span><strong>Hover</strong> entities to visually highlight active connections.</span></p>
+            <p className="flex gap-2"><span className="text-blue-500 mt-0.5">•</span> <span><strong>Total Participation</strong> draws double lines via the sidebar tags.</span></p>
+            <p className="flex gap-2"><span className="text-blue-500 mt-0.5">•</span> <span><strong>Attributes</strong> can be attached to relationships and dragged freely.</span></p>
           </div>
 
-          <div className="border-t border-[#27272a] pt-3">
-            <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2.5">Legend</h4>
+          <div className="border-t border-zinc-800/80 pt-3">
+            <h4 className="text-[9px] font-extrabold text-zinc-500 uppercase tracking-widest mb-3">Legend / Indicators</h4>
             <ul className="text-xs text-zinc-300 flex flex-col gap-2">
-              <li className="flex items-center gap-2.5"><span className="text-[#fbbf24]">🔑</span> Primary Key</li>
-              <li className="flex items-center gap-2.5"><span className="text-[#c084fc]">⭐</span> Unique</li>
-              <li className="flex items-center gap-2.5"><span className="text-[#94a3b8]">○</span> Nullable</li>
-              <li className="flex items-center gap-2.5"><span className="text-[#6366f1]">◇</span> Relationship</li>
-              <li className="flex items-center gap-2.5"><span className="text-zinc-400 font-mono text-[9px] tracking-tighter">════</span> Total Participation (Double Line)</li>
-              <li className="flex items-center gap-2.5"><span className="text-zinc-400 font-mono text-[9px] tracking-tighter">- - -</span> Relationship Attribute Connector</li>
+              <li className="flex items-center gap-2.5"><span className="text-amber-400 text-xs font-bold font-mono">PK</span> Primary Key Indicator (Gold)</li>
+              <li className="flex items-center gap-2.5"><span className="text-indigo-400 text-xs font-bold font-mono">UQ</span> Unique Attribute (Purple)</li>
+              <li className="flex items-center gap-2.5"><span className="text-emerald-400 text-xs font-bold font-mono">N</span> Nullable Attribute (Green)</li>
+              <li className="flex items-center gap-2.5"><span className="text-zinc-500 font-mono text-[9px] tracking-tighter">════</span> Double lines indicate Total Participation</li>
+              <li className="flex items-center gap-2.5"><span className="text-zinc-500 font-mono text-[9px] tracking-tighter">- - -</span> Dashed line connects relationship attributes</li>
             </ul>
           </div>
         </div>
       )}
 
-      {/* Floating Toggle Button */}
-      <button
-        onClick={() => {
-          const nextHidden = !guideHidden;
-          setGuideHidden(nextHidden);
-          if (nextHidden) {
-            localStorage.setItem('erd_guide_hidden', 'true');
-          } else {
-            localStorage.removeItem('erd_guide_hidden');
-          }
-        }}
-        className="absolute right-8 bottom-6 bg-[#141417]/95 hover:bg-[#202024] text-xs font-bold text-zinc-400 hover:text-white px-4 py-2.5 rounded-xl border border-[#27272a] shadow-lg shadow-black/40 flex items-center gap-2 transition-all duration-200 cursor-pointer z-40 hover:border-zinc-500 hover:scale-[1.02] active:scale-[0.98]"
-        title="Toggle interactive guide and legend"
-        id="toggle-guide-btn"
-      >
-        <span>💡</span>
-        <span>{guideHidden ? "Show Guide" : "Hide Guide"}</span>
-      </button>
+      {/* Control Bar (Zoom & Help) */}
+      <div className="absolute right-6 bottom-6 flex items-center gap-2.5 z-40">
+        {/* On-screen Zoom Controls */}
+        <div className="flex items-center bg-[#0d0d10]/95 border border-[#27272a]/95 rounded-xl px-1.5 py-1 shadow-lg shadow-black/40 backdrop-blur-md gap-0.5">
+          <button
+            onClick={() => setScale(s => Math.max(s - 0.1, 0.3))}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer active:scale-90"
+            title="Zoom Out"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => { setScale(1); setPanX(0); setPanY(0); }}
+            className="px-2 py-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 text-[10px] font-mono font-bold transition-colors cursor-pointer active:scale-95"
+            title="Reset Zoom to 100% and Center Canvas"
+          >
+            {Math.round(scale * 100)}%
+          </button>
+          <button
+            onClick={() => setScale(s => Math.min(s + 0.1, 2.0))}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer active:scale-90"
+            title="Zoom In"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Floating Toggle Button */}
+        <button
+          onClick={() => {
+            const nextHidden = !guideHidden;
+            setGuideHidden(nextHidden);
+            if (nextHidden) {
+              localStorage.setItem('erd_guide_hidden', 'true');
+            } else {
+              localStorage.removeItem('erd_guide_hidden');
+            }
+          }}
+          className="bg-[#0d0d10]/95 hover:bg-zinc-900 text-xs font-semibold text-zinc-300 hover:text-white px-4 py-2 rounded-xl border border-[#27272a] shadow-lg shadow-black/40 flex items-center gap-1.5 transition-all duration-200 cursor-pointer hover:border-zinc-700 hover:scale-[1.02] active:scale-[0.98] h-9"
+          title="Toggle interactive guide and legend"
+          id="toggle-guide-btn"
+        >
+          <HelpCircle className="w-4 h-4 text-indigo-400" />
+          <span>{guideHidden ? "Show Guide" : "Hide Guide"}</span>
+        </button>
+      </div>
+
+      {/* Floating Success Toast */}
+      {toastMessage && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-[#09090b]/95 border border-emerald-500/35 text-emerald-400 text-xs px-4 py-2.5 rounded-full shadow-xl shadow-black/60 backdrop-blur z-50 flex items-center gap-2 animate-fadeIn font-semibold" id="toast-message">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
       </div>
 
       {/* Footer Status Bar */}
-      <footer className="h-8 border-t border-[#262626] bg-[#121212] flex items-center justify-between px-6 text-[10px] text-gray-500 shrink-0 z-30">
+      <footer className="h-8 border-t border-[#1f1f23] bg-[#09090b] flex items-center justify-between px-6 text-[10px] text-zinc-500 shrink-0 z-30 select-none">
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5 text-gray-400">
+          <span className="flex items-center gap-1.5 text-zinc-400">
             <span className="relative flex h-1.5 w-1.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
             </span>
-            Connected to Sandbox
+            <span>Workspace Active</span>
           </span>
-          <span className="w-[1px] h-3 bg-[#262626]"></span>
-          <span>Entities: <strong className="text-gray-300 font-mono">{tables.length}</strong></span>
-          <span className="w-[1px] h-3 bg-[#262626]"></span>
-          <span>Relationships: <strong className="text-gray-300 font-mono">{relationships.length}</strong></span>
+          <span className="w-[1px] h-3 bg-zinc-800"></span>
+          <span>Entities: <strong className="text-zinc-300 font-mono font-semibold">{tables.length}</strong></span>
+          <span className="w-[1px] h-3 bg-zinc-800"></span>
+          <span>Relationships: <strong className="text-zinc-300 font-mono font-semibold">{relationships.length}</strong></span>
         </div>
-        <div className="flex items-center gap-4 font-mono">
-          <span>Pan X: <strong className="text-gray-400">{Math.round(panX)}px</strong> Y: <strong className="text-gray-400">{Math.round(panY)}px</strong></span>
-          <span className="w-[1px] h-3 bg-[#262626]"></span>
-          <span className="text-blue-400 bg-blue-950/20 px-2 py-0.5 rounded border border-blue-900/30">Zoom: {Math.round(scale * 100)}%</span>
+        <div className="flex items-center gap-4 font-mono text-[9px] text-zinc-400">
+          <span>Offsets: X <strong className="text-zinc-500 font-medium">{Math.round(panX)}px</strong> / Y <strong className="text-zinc-500 font-medium">{Math.round(panY)}px</strong></span>
+          <span className="w-[1px] h-3 bg-zinc-800"></span>
+          <span className="text-indigo-400 font-bold bg-indigo-950/15 px-2 py-0.5 rounded border border-indigo-900/25">Scale: {Math.round(scale * 100)}%</span>
         </div>
       </footer>
     </div>
