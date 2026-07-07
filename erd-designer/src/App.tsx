@@ -238,6 +238,7 @@ export default function App() {
   // Dragging Interaction State
   const [draggedTableId, setDraggedTableId] = useState<string | null>(null);
   const [draggedRelId, setDraggedRelId] = useState<string | null>(null);
+  const [draggedRelAttr, setDraggedRelAttr] = useState<{ relId: string; attrId: string } | null>(null);
   const [isPanning, setIsPanning] = useState<boolean>(false);
 
   const dragStart = useRef({ x: 0, y: 0, itemX: 0, itemY: 0 });
@@ -340,9 +341,10 @@ export default function App() {
       setIsPanning(false);
       setDraggedTableId(null);
       setDraggedRelId(null);
+      setDraggedRelAttr(null);
     };
 
-    if (isPanning || draggedTableId || draggedRelId) {
+    if (isPanning || draggedTableId || draggedRelId || draggedRelAttr) {
       window.addEventListener('mousemove', handleGlobalMouseMove);
       window.addEventListener('mouseup', handleGlobalMouseUp);
     }
@@ -351,7 +353,7 @@ export default function App() {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [isPanning, draggedTableId, draggedRelId, scale]);
+  }, [isPanning, draggedTableId, draggedRelId, draggedRelAttr, scale]);
 
   // --- ACTIONS ---
   const handleSaveManual = () => {
@@ -572,6 +574,18 @@ export default function App() {
       }
       return r;
     }));
+  };
+
+  const handleRelAttrMouseEnter = (relId: string, attrId: string) => {
+    if (!draggedRelAttr || draggedRelAttr.relId !== relId || draggedRelAttr.attrId === attrId) return;
+    
+    const rel = relationships.find(r => r.id === relId);
+    if (!rel || !rel.attributes) return;
+    
+    const hoverIdx = rel.attributes.findIndex(a => a.id === attrId);
+    if (hoverIdx === -1) return;
+    
+    handleMoveRelAttribute(relId, draggedRelAttr.attrId, hoverIdx);
   };
 
   const handleCloseGuidePermanently = () => {
@@ -1412,34 +1426,26 @@ export default function App() {
                        }}
                        onMouseDown={(e) => e.stopPropagation()}
                      >
-                       {rel.attributes?.map((attr, idx) => (
-                         <div
-                           key={attr.id}
-                           className="rel-attr-item cursor-grab select-none active:cursor-grabbing hover:bg-white/5 px-1 rounded transition-colors"
-                           draggable
-                           onDragStart={(e) => {
-                             e.stopPropagation();
-                             e.dataTransfer.setData('text/plain', attr.id);
-                             e.dataTransfer.setData('source-rel', rel.id);
-                           }}
-                           onDragOver={(e) => {
-                             e.preventDefault();
-                             e.stopPropagation();
-                           }}
-                           onDrop={(e) => {
-                             e.preventDefault();
-                             e.stopPropagation();
-                             const draggedId = e.dataTransfer.getData('text/plain');
-                             const sourceRelId = e.dataTransfer.getData('source-rel');
-                             if (sourceRelId === rel.id && draggedId !== attr.id) {
-                               handleMoveRelAttribute(rel.id, draggedId, idx);
-                             }
-                           }}
-                         >
-                           <span className="rel-attr-bullet">○</span>
-                           <span>{attr.name}</span>
-                         </div>
-                       ))}
+                       {rel.attributes?.map((attr) => {
+                         const isBeingDragged = draggedRelAttr?.relId === rel.id && draggedRelAttr?.attrId === attr.id;
+                         return (
+                           <div
+                             key={attr.id}
+                             className={`rel-attr-item cursor-grab select-none active:cursor-grabbing hover:bg-white/5 px-1 rounded transition-colors ${
+                               isBeingDragged ? 'opacity-40 border border-dashed border-[#6366f1] bg-[#6366f1]/10' : ''
+                             }`}
+                             onMouseDown={(e) => {
+                               e.stopPropagation();
+                               e.preventDefault();
+                               setDraggedRelAttr({ relId: rel.id, attrId: attr.id });
+                             }}
+                             onMouseEnter={() => handleRelAttrMouseEnter(rel.id, attr.id)}
+                           >
+                             <span className="rel-attr-bullet">○</span>
+                             <span>{attr.name}</span>
+                           </div>
+                         );
+                       })}
                      </div>
                    )}
                 </React.Fragment>
