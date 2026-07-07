@@ -88,17 +88,17 @@ Create Relationships
 
 ---
 
-[Sample](./Example.png)
+![Sample](./Example.png)
 
 ---
 
-
 🐞 Known Bugs
 
-Issue| Status
-Automatic export does not correctly export the entire diagram.| ❌ Known Issue
-Manual selection export produces lower image quality than expected.| ❌ Known Issue
-It does not support composite and derived attributes. | ❌ Known Issue
+| Issue | Status |
+|-------|--------|
+| Automatic export does not correctly export the entire diagram. | ❌ Known Issue |
+| Manual selection export produces lower image quality than expected. | ❌ Known Issue |
+| It does not support composite and derived attributes. | ❌ Known Issue |
 
 ---
 
