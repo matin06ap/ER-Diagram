@@ -51,10 +51,10 @@ Install [Node.js](https://nodejs.org/en/download) (LTS), which includes npm.
 
 Verify the installation:
 
-'''
+```
 node -v
 npm -v
-'''
+```
 
 ---
 
@@ -62,11 +62,11 @@ Installation
 
 Clone or extract the project, then run:
 
-' npm install'
+`npm install`
 
 Start the development server:
 
-' npm run dev'
+`npm run dev`
 
 Open the local address shown in your terminal (typically "http://localhost:3000").
 
